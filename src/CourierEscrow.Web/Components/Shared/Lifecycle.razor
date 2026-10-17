@@ -1,0 +1,33 @@
+<ol class="lifecycle">
+    @foreach (var (name, label) in Steps)
+    {
+        var idx = Order(name);
+        var cls = Closed ? (idx <= Current ? "done" : "skipped") : idx < Current ? "done" : idx == Current ? "active" : "";
+        <li class="@cls"><span class="dot">@(cls == "done" ? "✓" : (Array.IndexOf(Steps.Select(s => s.Name).ToArray(), name) + 1))</span><span class="label">@label</span></li>
+    }
+</ol>
+@if (Side is not null)
+{
+    <p class="muted small">Off the happy path: <strong>@Side</strong></p>
+}
+
+@code {
+    [Parameter, EditorRequired] public string State { get; set; } = "";
+
+    /// <summary>The buyer confirmed the item photos. Payment is only requested after this.</summary>
+    [Parameter] public bool Approved { get; set; }
+
+    private static readonly (string Name, string Label)[] Steps =
+    [
+        ("Created", "Created"), ("Approved", "Buyer approved"), ("PaymentPending", "Awaiting payment"), ("Funded", "Funded"), ("PickedUp", "Picked up"),
+        ("Delivered", "Delivered"), ("Released", "Released"), ("Settled", "Settled")
+    ];
+
+    private static readonly string[] Off = ["Rejected", "Returned", "Refunded", "Disputed", "Cancelled"];
+    private bool Closed => State == "Settled";
+    private int Current => Order(Base);
+    private string Base => Off.Contains(State) ? (State == "Cancelled" ? (Approved ? "Approved" : "Created") : "Delivered")
+                         : State == "Created" && Approved ? "Approved" : State;
+    private string? Side => Off.Contains(State) ? State : null;
+    private static int Order(string s) => Array.FindIndex(Steps, x => x.Name == s);
+}

@@ -1,0 +1,94 @@
+@page "/orders"
+@inject EscrowApiClient Api
+@inject NavigationManager Nav
+
+<PageTitle>Orders · Nexa Escrow</PageTitle>
+<div class="page-head">
+    <h1>Orders</h1>
+</div>
+
+<Notice Message="@error" Kind="error" />
+
+<div class="filter-bar">
+    <input class="input" placeholder="Search order, item, buyer or seller" @bind="q" @bind:event="oninput" />
+    <select class="input" @bind="state" @bind:after="Load">
+        <option value="">All states</option>
+        @foreach (var s in States) { <option value="@s">@s</option> }
+    </select>
+    @if (FlaggedQuery == "1")
+    {
+        <span class="chip">Flagged only <a href="/orders">Clear</a></span>
+    }
+</div>
+
+@if (orders is null && error is null) { <p class="muted">Loading…</p> }
+else if (orders is not null)
+{
+    var shown = Filtered;
+    @if (shown.Count == 0)
+    {
+        <EmptyState Title="@(orders.Count == 0 ? "No orders yet" : "Nothing matches")"
+                    Body="@(orders.Count == 0 ? "Create an order to hold the buyer’s payment until handover." : "Try another search or state.")">
+            @if (orders.Count == 0) { <a class="btn primary" href="/orders/new">New order</a> }
+        </EmptyState>
+    }
+    else
+    {
+        <div class="table-wrap">
+            <table class="table">
+                <thead><tr><th>Order</th><th>Item</th><th>Buyer → Seller</th><th class="num">Total</th><th>State</th><th>Created</th></tr></thead>
+                <tbody>
+                @foreach (var o in shown)
+                {
+                    <tr class="click" @onclick='() => Nav.NavigateTo($"/orders/{o.Id}")'>
+                        <td><a href="/orders/@o.Id" @onclick:stopPropagation="true">@o.OrderNumber</a> @if (o.OpsFlag is not null) { <span class="tag" title="@o.OpsFlag">needs attention</span> }</td>
+                        <td>@o.ItemDescription</td>
+                        <td>@o.BuyerName → @o.SellerName</td>
+                        <td class="num">@Fmt.Money(o.Total, o.Currency)</td>
+                        <td><StateBadge State="@o.State" /> @if (o.State == "Created" && o.ProductConfirmedAt is null) { <span class="tag" title="The buyer has not yet confirmed the item photos">awaiting buyer</span> }</td>
+                        <td class="muted small">@Fmt.When(o.CreatedAt)</td>
+                    </tr>
+                }
+                </tbody>
+            </table>
+        </div>
+    }
+}
+
+@code {
+    private static readonly string[] States = ["Created", "PaymentPending", "Funded", "PickedUp", "Delivered", "Released", "Settled", "Rejected", "Returned", "Refunded", "Disputed", "Cancelled"];
+    private List<OrderSummary>? orders;
+    private string state = "";
+    private string q = "";
+    private string? error;
+
+    [SupplyParameterFromQuery(Name = "state")] public string? StateQuery { get; set; }
+    [SupplyParameterFromQuery(Name = "flagged")] public string? FlaggedQuery { get; set; }
+
+    private List<OrderSummary> Filtered
+    {
+        get
+        {
+            if (orders is null) return [];
+            if (string.IsNullOrWhiteSpace(q)) return orders;
+            var n = q.Trim();
+            return orders.Where(o =>
+                o.OrderNumber.Contains(n, StringComparison.OrdinalIgnoreCase)
+                || o.ItemDescription.Contains(n, StringComparison.OrdinalIgnoreCase)
+                || o.BuyerName.Contains(n, StringComparison.OrdinalIgnoreCase)
+                || o.SellerName.Contains(n, StringComparison.OrdinalIgnoreCase)).ToList();
+        }
+    }
+
+    protected override async Task OnInitializedAsync()
+    {
+        state = StateQuery ?? "";
+        await Load();
+    }
+
+    private async Task Load()
+    {
+        try { error = null; orders = FlaggedQuery == "1" ? await Api.GetFlagged() : await Api.GetOrders(state); }
+        catch (Exception ex) { error = ex.Message; }
+    }
+}

@@ -1,0 +1,13 @@
+@if (Count > 0)
+{
+    <div class="stat">
+        <span class="stat-label">@Label</span>
+        <span class="stat-value">@if (Href is null) { @Count } else { <a href="@Href">@Count</a> }</span>
+    </div>
+}
+
+@code {
+    [Parameter, EditorRequired] public string Label { get; set; } = "";
+    [Parameter] public int Count { get; set; }
+    [Parameter] public string? Href { get; set; }
+}

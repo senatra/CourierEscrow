@@ -1,0 +1,190 @@
+@page "/users"
+@attribute [Authorize(Roles = "ops_admin")]
+@inject EscrowApiClient Api
+@inject AuthenticationStateProvider Auth
+
+<PageTitle>Users · Nexa Escrow</PageTitle>
+<div class="page-head">
+    <h1>Users</h1>
+    <div class="head-actions">
+        <button class="btn" @onclick="Load">Refresh</button>
+        @if (!adding)
+        {
+            <button class="btn primary" @onclick="StartAdd">Add user</button>
+        }
+    </div>
+</div>
+
+<Notice Message="@error" Kind="error" />
+<Notice Message="@info" Kind="info" />
+
+@if (revealPassword is not null)
+{
+    <div class="notice info reveal" role="status">
+        Temporary password for <strong>@revealName</strong>: <code class="mono">@revealPassword</code><br />
+        <span class="small">Give it to them privately. It is shown once, and they must choose their own when they sign in.</span>
+        <div class="form-actions"><button class="btn small" @onclick="() => revealPassword = null">Done</button></div>
+    </div>
+}
+
+@if (adding)
+{
+    <div class="card form" style="margin-bottom:1.5rem">
+        <h3>New user</h3>
+        <div class="two-col">
+            <label>Name <input class="input" @bind="newName" autocomplete="off" /></label>
+            <label>Username <input class="input" @bind="newUsername" autocomplete="off" autocapitalize="none" spellcheck="false" placeholder="e.g. chikondi" /></label>
+            <label>Role
+                <select class="input" @bind="newRole">
+                    @foreach (var r in RoleOptions) { <option value="@r.Value">@r.Label</option> }
+                </select>
+            </label>
+            <label>Temporary password <input class="input mono" @bind="newPassword" autocomplete="off" /></label>
+        </div>
+        <p class="muted small">At least 5 characters. They choose their own the first time they sign in.</p>
+        <div class="form-actions">
+            <button type="button" class="btn" @onclick="() => newPassword = ConsoleSession.GeneratePassword()">Generate password</button>
+            <button type="button" class="btn primary" disabled="@busy" @onclick="Add">@(busy ? "Adding…" : "Create user")</button>
+            <button type="button" class="btn ghost" @onclick="CancelAdd">Cancel</button>
+        </div>
+    </div>
+}
+
+@if (rows is null && error is null) { <p class="muted">Loading…</p> }
+else if (rows is not null)
+{
+    <div class="table-wrap">
+        <table class="table">
+            <thead><tr><th>Name</th><th>Username</th><th>Role</th><th>Status</th><th>Last sign-in</th><th></th></tr></thead>
+            <tbody>
+            @foreach (var u in rows)
+            {
+                var self = u.Id == myId;
+                <tr>
+                    <td>@u.DisplayName @if (self) { <span class="muted small">(you)</span> }</td>
+                    <td class="mono small">@u.Username</td>
+                    <td>
+                        <select class="input role-select" value="@u.Role" disabled="@(busy || self)" title="@(self ? "You cannot change your own role" : null)"
+                                @onchange="e => ChangeRole(u, e.Value?.ToString())">
+                            @foreach (var r in RoleOptions) { <option value="@r.Value">@r.Short</option> }
+                        </select>
+                    </td>
+                    <td>
+                        <StateBadge State="@u.Status" />
+                        @if (u.Locked) { <span class="badge locked">Locked</span> }
+                        @if (u.MustChangePassword) { <span class="badge attention" title="Still on a temporary password">New password due</span> }
+                    </td>
+                    <td class="small">@Fmt.When(u.LastLoginAt)</td>
+                    <td>
+                        @if (u.Locked) { <button class="btn small" disabled="@busy" @onclick="() => Unlock(u)">Unlock</button> }
+                        @if (!self)
+                        {
+                            <button class="btn small" disabled="@busy" @onclick="() => StartReset(u)">Reset password</button>
+                            <button class="btn small" disabled="@busy" @onclick="() => Toggle(u)">@(u.Status == "Active" ? "Disable" : "Enable")</button>
+                        }
+                    </td>
+                </tr>
+                @if (resetFor == u.Id)
+                {
+                    <tr>
+                        <td colspan="6">
+                            <div class="form-actions" style="margin:0;align-items:center">
+                                <span>New temporary password for <strong>@u.DisplayName</strong>:</span>
+                                <input class="input mono" style="width:16rem" @bind="resetPassword" autocomplete="off" />
+                                <button class="btn small" @onclick="() => resetPassword = ConsoleSession.GeneratePassword()">Generate</button>
+                                <button class="btn small primary" disabled="@busy" @onclick="() => Reset(u)">Set password</button>
+                                <button class="btn small ghost" @onclick="CancelReset">Cancel</button>
+                            </div>
+                        </td>
+                    </tr>
+                }
+            }
+            </tbody>
+        </table>
+    </div>
+    <p class="muted small" style="margin-top:.75rem">
+        Disabling someone, changing their role or resetting their password signs them out immediately.
+        There must always be at least one active administrator.
+    </p>
+}
+
+@code {
+    private sealed record RoleOption(string Value, string Label, string Short);
+
+    private static readonly RoleOption[] RoleOptions =
+    [
+        new("ops_agent", "Ops agent: creates and follows orders", "Ops agent"),
+        new("finance", "Finance: payouts and reconciliation", "Finance"),
+        new("ops_admin", "Admin: refunds, disputes, users", "Admin")
+    ];
+
+    private List<StaffUserRow>? rows;
+    private Guid? myId;
+    private string? error, info;
+    private bool busy, adding;
+    private string newName = "", newUsername = "", newRole = "ops_agent", newPassword = "";
+    private Guid? resetFor;
+    private string resetPassword = "";
+    private string? revealName, revealPassword;
+
+    protected override async Task OnInitializedAsync()
+    {
+        var user = (await Auth.GetAuthenticationStateAsync()).User;
+        myId = Guid.TryParse(user.FindFirst(System.Security.Claims.ClaimTypes.NameIdentifier)?.Value, out var id) ? id : null;
+        await Load();
+    }
+
+    private async Task Load()
+    {
+        try { error = null; rows = await Api.GetUsers(); }
+        catch (Exception ex) { error = ex.Message; }
+    }
+
+    private void StartAdd() { adding = true; error = info = null; newPassword = ConsoleSession.GeneratePassword(); }
+    private void CancelAdd() { adding = false; newName = newUsername = newPassword = ""; newRole = "ops_agent"; }
+
+    private async Task Add()
+    {
+        if (string.IsNullOrWhiteSpace(newName) || string.IsNullOrWhiteSpace(newUsername)) { error = "Enter a name and a username."; return; }
+        var name = newName.Trim();
+        var password = newPassword;
+        await Do(async () =>
+        {
+            await Api.CreateUser(newUsername.Trim(), name, newRole, password);
+            CancelAdd();
+            Reveal(name, password);
+        }, $"{name} was added.");
+    }
+
+    private Task ChangeRole(StaffUserRow u, string? role) =>
+        role is null || role == u.Role ? Task.CompletedTask : Do(() => Api.SetUserRole(u.Id, role), $"{u.DisplayName} is now {role}.");
+
+    private Task Toggle(StaffUserRow u) =>
+        Do(() => Api.SetUserActive(u.Id, u.Status != "Active"), u.Status == "Active" ? $"{u.DisplayName} was disabled." : $"{u.DisplayName} was enabled.");
+
+    private Task Unlock(StaffUserRow u) => Do(() => Api.UnlockUser(u.Id), $"{u.DisplayName} was unlocked.");
+
+    private void StartReset(StaffUserRow u) { resetFor = u.Id; resetPassword = ConsoleSession.GeneratePassword(); error = info = null; }
+    private void CancelReset() { resetFor = null; resetPassword = ""; }
+
+    private Task Reset(StaffUserRow u)
+    {
+        var password = resetPassword;
+        return Do(async () =>
+        {
+            await Api.ResetUserPassword(u.Id, password);
+            CancelReset();
+            Reveal(u.DisplayName, password);
+        }, $"{u.DisplayName}'s password was reset.");
+    }
+
+    private void Reveal(string name, string password) { revealName = name; revealPassword = password; }
+
+    private async Task Do(Func<Task> action, string done)
+    {
+        busy = true; error = null; info = null;
+        try { await action(); info = done; await Load(); }
+        catch (Exception ex) { error = ex.Message; await Load(); }   // reload so a role dropdown that was refused snaps back
+        finally { busy = false; }
+    }
+}

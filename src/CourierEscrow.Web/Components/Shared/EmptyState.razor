@@ -1,0 +1,14 @@
+<div class="empty">
+    <p class="empty-title">@Title</p>
+    @if (!string.IsNullOrWhiteSpace(Body))
+    {
+        <p class="muted">@Body</p>
+    }
+    @ChildContent
+</div>
+
+@code {
+    [Parameter, EditorRequired] public string Title { get; set; } = "";
+    [Parameter] public string? Body { get; set; }
+    [Parameter] public RenderFragment? ChildContent { get; set; }
+}

@@ -1,0 +1,44 @@
+name: ci
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  build-and-test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: 8.0.x
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: Restore
+        run: dotnet restore
+
+      - name: Build
+        run: dotnet build --no-restore -c Release
+
+      - name: Test (domain, services, OneKhusa adapter, security)
+        run: dotnet test --no-build -c Release --logger "trx;LogFileName=results.trx"
+
+      - name: Test (courier web app offline queue)
+        run: node tests/courier-app/sync.test.js
+
+      - name: Test (buyer page: approve photos, pay, hand-over)
+        run: cd tests/buyer-page && npm install --no-audit --no-fund && node flow.test.js
+
+      - name: Test (hand-over screen: type the code, release, payouts)
+        run: cd tests/handover-page && npm install --no-audit --no-fund && node handover.test.js
+
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: test-results
+          path: "**/TestResults/*.trx"

@@ -1,0 +1,10 @@
+{
+  "name": "Nexa Courier",
+  "short_name": "Nexa Courier",
+  "start_url": "./",
+  "scope": "./",
+  "display": "standalone",
+  "background_color": "#f2f4f3",
+  "theme_color": "#0f6b46",
+  "icons": [{ "src": "icon.svg", "sizes": "any", "type": "image/svg+xml", "purpose": "any maskable" }]
+}

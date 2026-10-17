@@ -1,0 +1,706 @@
+<!doctype html>
+<html lang="en">
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+    <meta name="theme-color" content="#0b5f3f">
+    <title>Your order · Nexa Escrow</title>
+    <script>
+        // Apply the saved theme before the first paint so the page never flashes the wrong colours.
+        try { var t = localStorage.getItem('nexa-theme'); if (t === 'light' || t === 'dark') document.documentElement.setAttribute('data-theme', t); } catch (e) {}
+    </script>
+    <style>
+        :root {
+            color-scheme: light;
+            --bg: #eef3f0;
+            --bg-grad: radial-gradient(1100px 420px at 50% -120px, #cfe9dc 0%, rgba(207,233,220,0) 70%);
+            --card: #ffffff;
+            --card-2: #f1f6f3;
+            --text: #0f1a14;
+            --muted: #4b5b52;
+            --line: #cfdad3;
+            --brand: #0b6b44;
+            --brand-2: #0f7a4e;
+            --brand-ink: #ffffff;
+            --brand-soft: #d6efe1;
+            --amber: #7a4e00;
+            --amber-soft: #fff0c7;
+            --red: #a8200f;
+            --red-soft: #fde2de;
+            --shadow: 0 1px 2px rgba(15,26,20,.08), 0 8px 24px rgba(15,26,20,.08);
+            --toast-bg: #0f1a14;
+            --toast-fg: #ffffff;
+            --toast-err-bg: #a8200f;
+            --toast-err-fg: #ffffff;
+            --radius: 20px;
+        }
+
+        /* Dark: follows the device unless the buyer picked a theme with the toggle. */
+        @media (prefers-color-scheme: dark) {
+            :root:not([data-theme="light"]) {
+            color-scheme: dark;
+            --bg: #0b110e;
+            --bg-grad: radial-gradient(1100px 420px at 50% -120px, #15402f 0%, rgba(21,64,47,0) 70%);
+            --card: #141c18;
+            --card-2: #1b2621;
+            --text: #eef5f0;
+            --muted: #a9bbb1;
+            --line: #2c3b34;
+            --brand: #45d896;
+            --brand-2: #2fb878;
+            --brand-ink: #03140c;
+            --brand-soft: #123628;
+            --amber: #f5c963;
+            --amber-soft: #3a2d0e;
+            --red: #ff9a90;
+            --red-soft: #411e1b;
+            --shadow: 0 1px 2px rgba(0,0,0,.4), 0 8px 24px rgba(0,0,0,.35);
+            --toast-bg: #eef5f0;
+            --toast-fg: #0b110e;
+            --toast-err-bg: #ff9a90;
+            --toast-err-fg: #2a0b08;
+            }
+        }
+
+        :root[data-theme="dark"] {
+            color-scheme: dark;
+            --bg: #0b110e;
+            --bg-grad: radial-gradient(1100px 420px at 50% -120px, #15402f 0%, rgba(21,64,47,0) 70%);
+            --card: #141c18;
+            --card-2: #1b2621;
+            --text: #eef5f0;
+            --muted: #a9bbb1;
+            --line: #2c3b34;
+            --brand: #45d896;
+            --brand-2: #2fb878;
+            --brand-ink: #03140c;
+            --brand-soft: #123628;
+            --amber: #f5c963;
+            --amber-soft: #3a2d0e;
+            --red: #ff9a90;
+            --red-soft: #411e1b;
+            --shadow: 0 1px 2px rgba(0,0,0,.4), 0 8px 24px rgba(0,0,0,.35);
+            --toast-bg: #eef5f0;
+            --toast-fg: #0b110e;
+            --toast-err-bg: #ff9a90;
+            --toast-err-fg: #2a0b08;
+        }
+
+        * { box-sizing: border-box; }
+
+        html { -webkit-text-size-adjust: 100%; }
+
+        body {
+            margin: 0;
+            min-height: 100vh;
+            font: 17px/1.6 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+            background-color: var(--bg);
+            background-image: var(--bg-grad);
+            background-repeat: no-repeat;
+            color: var(--text);
+            padding: env(safe-area-inset-top) env(safe-area-inset-right) env(safe-area-inset-bottom) env(safe-area-inset-left);
+        }
+
+        main { max-width: 600px; margin: 0 auto; padding: 1rem 1rem 3rem; }
+
+        /*  top bar  */
+        .top { display: flex; align-items: center; justify-content: space-between; gap: .75rem; padding: .35rem .25rem 1rem; }
+        .brand { display: flex; align-items: center; gap: .6rem; font-weight: 700; letter-spacing: -.01em; }
+        .logo { width: 2.2rem; height: 2.2rem; border-radius: 12px; display: grid; place-items: center; color: var(--brand-ink); background: linear-gradient(135deg, var(--brand-2), var(--brand)); box-shadow: 0 4px 12px rgba(15,107,70,.35); }
+        .logo svg { width: 1.2rem; height: 1.2rem; }
+        .secure { display: inline-flex; align-items: center; gap: .35rem; font-size: .85rem; font-weight: 600; color: var(--brand); background: var(--brand-soft); padding: .3rem .65rem; border-radius: 99px; }
+        .secure svg { width: .9rem; height: .9rem; }
+        .top-right { display: flex; align-items: center; gap: .5rem; }
+        .theme { width: 2.75rem; height: 2.75rem; display: grid; place-items: center; padding: 0; border-radius: 50%; border: 1.5px solid var(--line); background: var(--card); color: var(--text); cursor: pointer; box-shadow: var(--shadow); transition: transform .12s ease, background .12s ease; }
+        .theme:hover { background: var(--card-2); }
+        .theme:active { transform: scale(.94); }
+        .theme svg { width: 1.3rem; height: 1.3rem; }
+        @media (max-width: 420px) { .secure span { display: none; } .secure { padding: .45rem; } }
+
+        /*  hero  */
+        .hero { position: relative; overflow: hidden; border-radius: 28px; padding: 1.3rem 1.3rem 1.2rem; color: #fff; background: linear-gradient(140deg, #08502f 0%, #0b6b44 55%, #0f7a4e 100%); box-shadow: 0 14px 34px rgba(8,80,47,.35); }
+        .hero::before, .hero::after { content: ""; position: absolute; border-radius: 50%; pointer-events: none; background: rgba(255,255,255,.08); }
+        .hero::before { width: 220px; height: 220px; right: -70px; top: -90px; }
+        .hero::after { width: 150px; height: 150px; right: 50px; bottom: -90px; background: rgba(255,255,255,.06); }
+        .hero > * { position: relative; }
+        .hero-row { display: flex; justify-content: space-between; align-items: flex-start; gap: .75rem; }
+        .order-no { font-size: .85rem; font-weight: 700; opacity: .92; letter-spacing: .04em; text-transform: uppercase; }
+        .hero h1 { margin: .15rem 0 0; font-size: 1.3rem; line-height: 1.25; overflow-wrap: anywhere; letter-spacing: -.01em; }
+        .seller { margin: .25rem 0 0; font-size: .95rem; opacity: .95; }
+        .pill { flex: none; display: inline-flex; align-items: center; gap: .4rem; font-size: .85rem; font-weight: 700; padding: .4rem .8rem; border-radius: 99px; background: rgba(255,255,255,.22); backdrop-filter: blur(6px); }
+        .pill i { width: .5rem; height: .5rem; border-radius: 50%; background: #fff; }
+        .pill.live i { animation: pulse 1.6s ease-out infinite; }
+        .amount { margin-top: 1.1rem; display: flex; align-items: baseline; gap: .6rem; flex-wrap: wrap; }
+        .amount strong { font-size: 2.35rem; font-weight: 800; letter-spacing: -.03em; line-height: 1; font-variant-numeric: tabular-nums; }
+        .amount span { font-size: .95rem; opacity: .95; }
+        .split { margin-top: .85rem; display: flex; gap: 1rem; flex-wrap: wrap; font-size: .92rem; opacity: .95; }
+        .split b { font-weight: 700; font-variant-numeric: tabular-nums; }
+
+        /*  cards  */
+        .card { background: var(--card); border: 1px solid var(--line); border-radius: var(--radius); padding: 1.15rem; margin-top: .9rem; box-shadow: var(--shadow); animation: rise .35s cubic-bezier(.2,.8,.2,1) both; }
+        .card h2 { margin: 0 0 .25rem; font-size: 1.2rem; line-height: 1.3; letter-spacing: -.01em; }
+        .card .sub { margin: 0 0 1rem; color: var(--muted); font-size: 1rem; }
+        .eyebrow { display: inline-flex; align-items: center; gap: .4rem; font-size: .8rem; font-weight: 800; letter-spacing: .08em; text-transform: uppercase; color: var(--brand); margin-bottom: .35rem; }
+        .muted { color: var(--muted); font-size: .95rem; }
+        .center { text-align: center; }
+
+        .card.action { border: 2px solid var(--brand); box-shadow: 0 0 0 4px var(--brand-soft), var(--shadow); }
+        .card.warn { border-color: var(--amber); background: var(--amber-soft); }
+        .card.bad { border-color: var(--red); background: var(--red-soft); }
+
+        /*  photos  */
+        .photos { display: grid; grid-template-columns: repeat(3, 1fr); gap: .55rem; }
+        .thumb { position: relative; display: block; padding: 0; margin: 0; border: 0; background: var(--card-2); border-radius: 14px; overflow: hidden; cursor: zoom-in; transition: transform .16s ease, box-shadow .16s ease; }
+        .thumb img { display: block; width: 100%; aspect-ratio: 1; object-fit: cover; }
+        .thumb .n { position: absolute; left: .4rem; top: .4rem; width: 1.5rem; height: 1.5rem; border-radius: 50%; display: grid; place-items: center; font-size: .75rem; font-weight: 800; color: #fff; background: rgba(0,0,0,.55); backdrop-filter: blur(4px); }
+        .thumb .zoom { position: absolute; right: .4rem; bottom: .4rem; width: 1.5rem; height: 1.5rem; border-radius: 50%; display: grid; place-items: center; color: #fff; background: rgba(0,0,0,.55); opacity: 0; transition: opacity .16s; }
+        .thumb .zoom svg { width: .85rem; height: .85rem; }
+        @media (hover: hover) {
+            .thumb:hover { transform: translateY(-3px) scale(1.02); box-shadow: 0 10px 22px rgba(0,0,0,.18); }
+            .thumb:hover .zoom { opacity: 1; }
+        }
+        .photo-group + .photo-group { margin-top: 1rem; }
+        .photo-label { margin: 0 0 .5rem; font-size: .85rem; font-weight: 700; color: var(--muted); text-transform: uppercase; letter-spacing: .05em; }
+
+        .checks { list-style: none; margin: .9rem 0 0; padding: 0; display: grid; gap: .45rem; }
+        .checks li { display: flex; gap: .6rem; align-items: flex-start; font-size: 1rem; }
+        .checks svg { flex: none; width: 1.15rem; height: 1.15rem; margin-top: .15rem; color: var(--brand); }
+
+        /*  buttons  */
+        .btn { font: inherit; font-weight: 700; display: flex; align-items: center; justify-content: center; gap: .5rem; width: 100%; min-height: 3.4rem; padding: .9rem 1rem; font-size: 1.02rem; line-height: 1.25; border-radius: 14px; border: 2px solid transparent; margin-top: .7rem; cursor: pointer; color: var(--brand-ink); background: linear-gradient(135deg, var(--brand-2), var(--brand)); box-shadow: 0 6px 16px rgba(8,80,47,.28); transition: transform .12s ease, filter .12s ease, box-shadow .12s ease; }
+        .btn:hover:not(:disabled) { filter: brightness(1.06); }
+        .btn:active:not(:disabled) { transform: translateY(1px) scale(.995); }
+        .btn svg { width: 1.15rem; height: 1.15rem; }
+        .btn.ghost { background: transparent; color: var(--red); border-color: var(--red); box-shadow: none; }
+        .btn.quiet { background: var(--card-2); color: var(--text); border-color: var(--line); box-shadow: none; }
+        .btn.small { width: auto; min-height: 2.75rem; padding: .55rem 1rem; margin: 0; font-size: .95rem; border-radius: 11px; }
+        .btn:disabled { opacity: .55; cursor: not-allowed; box-shadow: none; }
+        .btn .spin { width: 1.05rem; height: 1.05rem; border-radius: 50%; border: 2.5px solid currentColor; border-right-color: transparent; animation: spin .7s linear infinite; }
+        textarea::placeholder { color: var(--muted); opacity: 1; }
+        :focus-visible { outline: 3px solid var(--brand); outline-offset: 2px; }
+
+        .decline { margin-top: 1rem; padding-top: 1rem; border-top: 1px dashed var(--line); }
+        .decline summary { cursor: pointer; font-weight: 650; font-size: 1rem; color: var(--text); min-height: 2.75rem; padding: .4rem 0; list-style: none; display: flex; align-items: center; gap: .4rem; }
+        .decline summary::-webkit-details-marker { display: none; }
+        .decline summary::before { content: "›"; display: inline-block; transition: transform .15s; font-size: 1.2rem; line-height: 1; }
+        .decline[open] summary::before { transform: rotate(90deg); }
+        textarea { width: 100%; font: inherit; margin-top: .6rem; padding: .8rem .9rem; border-radius: 12px; border: 1.5px solid var(--muted); background: var(--card-2); color: var(--text); resize: vertical; }
+
+        /*  payment  */
+        .paybox { margin: .2rem 0 .2rem; padding: 1rem; border-radius: 16px; background: var(--card-2); border: 1px dashed var(--brand); text-align: center; }
+        .paybox small { display: block; color: var(--muted); font-size: .82rem; font-weight: 700; letter-spacing: .06em; text-transform: uppercase; }
+        .acct { margin: .25rem 0 .1rem; font: 800 1.7rem ui-monospace, SFMono-Regular, Menlo, monospace; letter-spacing: .06em; overflow-wrap: anywhere; user-select: all; }
+        .payamt { font-weight: 800; font-size: 1.35rem; font-variant-numeric: tabular-nums; }
+        .timer { display: inline-flex; align-items: center; gap: .4rem; margin-top: .7rem; font-size: .92rem; font-weight: 700; color: var(--amber); background: var(--amber-soft); padding: .3rem .7rem; border-radius: 99px; font-variant-numeric: tabular-nums; }
+        .timer.late { color: var(--red); background: var(--red-soft); }
+        .waiting { display: flex; align-items: center; gap: .6rem; margin-top: .9rem; font-size: .95rem; color: var(--muted); }
+        .dots { display: inline-flex; gap: .25rem; }
+        .dots i { width: .45rem; height: .45rem; border-radius: 50%; background: var(--brand); animation: bounce 1.2s infinite ease-in-out; }
+        .dots i:nth-child(2) { animation-delay: .15s; }
+        .dots i:nth-child(3) { animation-delay: .3s; }
+
+        .big-icon { width: 3.4rem; height: 3.4rem; border-radius: 50%; display: grid; place-items: center; margin: 0 auto .6rem; color: var(--brand-ink); background: linear-gradient(135deg, var(--brand-2), var(--brand)); box-shadow: 0 8px 20px rgba(15,107,70,.32); }
+        .big-icon svg { width: 1.7rem; height: 1.7rem; }
+        .big-icon.amber { background: linear-gradient(135deg, #e0a526, #c98a0b); box-shadow: 0 8px 20px rgba(201,138,11,.32); color: #fff; }
+        .big-icon.grey { background: var(--card-2); color: var(--muted); box-shadow: none; border: 1px solid var(--line); }
+        .big-icon.pop { animation: pop .5s cubic-bezier(.2,1.4,.4,1) both; }
+
+        .code-note { margin-top: .85rem; display: flex; gap: .65rem; align-items: flex-start; padding: .8rem .9rem; border-radius: 14px; background: var(--amber-soft); color: var(--text); font-size: 1rem; border: 1px solid var(--amber); }
+        .code-note svg { flex: none; width: 1.2rem; height: 1.2rem; color: var(--amber); margin-top: .1rem; }
+
+        /*  timeline  */
+        .timeline { list-style: none; margin: .4rem 0 0; padding: 0; }
+        .timeline li { position: relative; display: flex; gap: .85rem; padding-bottom: 1.15rem; }
+        .timeline li:last-child { padding-bottom: 0; }
+        .timeline li::before { content: ""; position: absolute; left: .83rem; top: 1.75rem; bottom: -.1rem; width: 2px; background: var(--line); }
+        .timeline li:last-child::before { display: none; }
+        .timeline li.done::before { background: var(--brand); }
+        .dot { flex: none; z-index: 1; width: 1.7rem; height: 1.7rem; border-radius: 50%; display: grid; place-items: center; font-size: .72rem; font-weight: 800; background: var(--card-2); border: 2px solid var(--line); color: var(--muted); }
+        .dot svg { width: .9rem; height: .9rem; }
+        .timeline li.done .dot { background: var(--brand); border-color: var(--brand); color: var(--brand-ink); }
+        .timeline li.current .dot { border-color: var(--brand); color: var(--brand); background: var(--brand-soft); box-shadow: 0 0 0 4px var(--brand-soft); animation: glow 2s ease-in-out infinite; }
+        .timeline li.off .dot { background: var(--red-soft); border-color: var(--red); color: var(--red); }
+        .t-label { font-weight: 700; line-height: 1.35; padding-top: .2rem; font-size: 1.02rem; }
+        .timeline li:not(.done):not(.current) .t-label { color: var(--muted); font-weight: 600; }
+        .t-hint { display: block; font-size: .92rem; color: var(--muted); font-weight: 400; margin-top: .1rem; }
+
+        /*  dev  */
+        .dev { margin-top: .9rem; padding: .9rem 1rem 1rem; border-radius: var(--radius); border: 2px dashed var(--amber); background: var(--amber-soft); }
+        .dev h2 { margin: 0; font-size: .85rem; letter-spacing: .08em; text-transform: uppercase; color: var(--amber); display: flex; align-items: center; gap: .4rem; }
+        .dev p { margin: .3rem 0 .1rem; font-size: .95rem; }
+        .dev .btn { background: var(--card); color: var(--text); border-color: var(--amber); box-shadow: none; }
+        .dev .btn:hover:not(:disabled) { background: var(--card-2); }
+
+        /*  toast  */
+        #toast { position: fixed; left: 50%; bottom: calc(1rem + env(safe-area-inset-bottom)); transform: translateX(-50%); width: min(92vw, 520px); z-index: 50; pointer-events: none; }
+        .toast { pointer-events: auto; display: flex; gap: .6rem; align-items: flex-start; padding: .9rem 1.05rem; border-radius: 14px; background: var(--toast-bg); color: var(--toast-fg); box-shadow: 0 12px 32px rgba(0,0,0,.3); font-size: 1rem; animation: toast-in .25s cubic-bezier(.2,.9,.3,1) both; }
+        .toast.err { background: var(--toast-err-bg); color: var(--toast-err-fg); }
+        .toast svg { flex: none; width: 1.2rem; height: 1.2rem; margin-top: .1rem; }
+
+        /*  lightbox  */
+        dialog { border: 0; padding: 0; background: transparent; max-width: 100vw; max-height: 100vh; width: 100%; height: 100%; }
+        dialog::backdrop { background: rgba(0,0,0,.88); backdrop-filter: blur(4px); }
+        dialog[open] { animation: fade .18s ease; }
+        .lb { height: 100%; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: .8rem; padding: 1rem; }
+        .lb img { max-width: min(96vw, 900px); max-height: 74vh; border-radius: 14px; box-shadow: 0 20px 50px rgba(0,0,0,.5); }
+        .lb-bar { display: flex; align-items: center; gap: .6rem; color: #fff; font-size: 1rem; flex-wrap: wrap; justify-content: center; }
+        .lb-bar .btn { margin: 0; width: auto; padding: .6rem 1.1rem; background: rgba(255,255,255,.2); box-shadow: none; border-color: transparent; color: #fff; min-height: 2.75rem; }
+
+        /*  skeleton  */
+        .skel { border-radius: 14px; background: linear-gradient(90deg, var(--card-2) 25%, var(--line) 50%, var(--card-2) 75%); background-size: 200% 100%; animation: shimmer 1.4s infinite; }
+
+        .foot { margin-top: 1.4rem; text-align: center; color: var(--muted); font-size: .9rem; }
+
+        @keyframes rise { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: none; } }
+        @keyframes fade { from { opacity: 0; } to { opacity: 1; } }
+        @keyframes spin { to { transform: rotate(360deg); } }
+        @keyframes pulse { 0% { box-shadow: 0 0 0 0 rgba(255,255,255,.7); } 100% { box-shadow: 0 0 0 9px rgba(255,255,255,0); } }
+        @keyframes glow { 0%, 100% { box-shadow: 0 0 0 4px var(--brand-soft); } 50% { box-shadow: 0 0 0 7px var(--brand-soft); } }
+        @keyframes bounce { 0%, 80%, 100% { transform: scale(.6); opacity: .5; } 40% { transform: scale(1); opacity: 1; } }
+        @keyframes pop { from { transform: scale(.4); opacity: 0; } to { transform: scale(1); opacity: 1; } }
+        @keyframes toast-in { from { transform: translateY(14px); opacity: 0; } to { transform: none; opacity: 1; } }
+        @keyframes shimmer { 0% { background-position: 200% 0; } 100% { background-position: -200% 0; } }
+
+        @media (prefers-reduced-motion: reduce) {
+            *, *::before, *::after { animation-duration: .01ms !important; animation-iteration-count: 1 !important; transition-duration: .01ms !important; }
+        }
+        @media (max-width: 380px) { .amount strong { font-size: 2rem; } .acct { font-size: 1.4rem; } }
+    </style>
+</head>
+<body>
+<main>
+    <div class="top">
+        <div class="brand">
+            <span class="logo" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3l8 3v6c0 4.5-3.2 7.8-8 9-4.8-1.2-8-4.5-8-9V6l8-3z"/><path d="M8.5 12.2l2.4 2.4 4.6-4.9"/></svg></span>
+            <span>Nexa Escrow</span>
+        </div>
+        <div class="top-right">
+            <span class="secure" title="Your money is held safely"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="5" y="11" width="14" height="9" rx="2"/><path d="M8 11V8a4 4 0 018 0v3"/></svg><span>Money held safely</span></span>
+            <button type="button" class="theme" id="theme" aria-label="Switch to dark mode"></button>
+        </div>
+    </div>
+
+    <div id="root">
+        <div class="skel" style="height:190px;border-radius:28px"></div>
+        <div class="skel" style="height:120px;margin-top:.9rem"></div>
+        <div class="skel" style="height:200px;margin-top:.9rem"></div>
+    </div>
+
+    <p class="foot">Your money only reaches the seller after you accept the item at your door.</p>
+</main>
+
+<div id="toast" role="status" aria-live="polite"></div>
+
+<dialog id="zoom" aria-label="Photo viewer">
+    <div class="lb">
+        <img id="zoomimg" alt="">
+        <div class="lb-bar">
+            <button type="button" class="btn" id="zprev" aria-label="Previous photo">‹</button>
+            <span id="zcount" aria-live="polite"></span>
+            <button type="button" class="btn" id="znext" aria-label="Next photo">›</button>
+            <button type="button" class="btn" id="zoomclose">Close</button>
+        </div>
+    </div>
+</dialog>
+
+<script>
+(() => {
+    'use strict';
+    const token = location.pathname.split('/').filter(Boolean).pop() || '';
+    const base = '/track/' + encodeURIComponent(token);
+    const $ = id => document.getElementById(id);
+    const root = $('root');
+    const zoom = $('zoom');
+
+    //  helpers 
+    const money = (minor, cur) => {
+        const n = (Number(minor) || 0) / 100;
+        const txt = n.toLocaleString('en', { minimumFractionDigits: n % 1 ? 2 : 0, maximumFractionDigits: 2 });
+        return (!cur || cur === 'MWK') ? 'K' + txt : cur + ' ' + txt;
+    };
+
+    const SVG = {
+        check:  '<path d="M5 12.5l4.5 4.5L19 7.5"/>',
+        shield: '<path d="M12 3l8 3v6c0 4.5-3.2 7.8-8 9-4.8-1.2-8-4.5-8-9V6l8-3z"/><path d="M8.5 12.2l2.4 2.4 4.6-4.9"/>',
+        card:   '<rect x="3" y="6" width="18" height="12" rx="2.5"/><path d="M3 10.5h18M7 15h3"/>',
+        truck:  '<path d="M3 7h11v9H3zM14 10h4l3 3v3h-7z"/><circle cx="7" cy="17.5" r="1.7"/><circle cx="17" cy="17.5" r="1.7"/>',
+        box:    '<path d="M3.5 7.5L12 3l8.5 4.5v9L12 21l-8.5-4.5z"/><path d="M3.5 7.5L12 12l8.5-4.5M12 12v9"/>',
+        pin:    '<path d="M12 21s7-6.2 7-11.2A7 7 0 005 9.8C5 14.800 12 21 12 21z"/><circle cx="12" cy="10" r="2.5"/>',
+        key:    '<circle cx="8" cy="15" r="4"/><path d="M11 12l9-9M16 7l3 3M14 9l2 2"/>',
+        clock:  '<circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/>',
+        x:      '<path d="M6 6l12 12M18 6L6 18"/>',
+        copy:   '<rect x="9" y="9" width="11" height="11" rx="2"/><path d="M5 15V6a2 2 0 012-2h9"/>',
+        zoom:   '<circle cx="11" cy="11" r="6"/><path d="M20 20l-4.2-4.2M11 8.5v5M8.500 11h5"/>',
+        alert:  '<path d="M12 3l10 18H2L12 3z"/><path d="M12 10v5M12 18v.01"/>',
+        undo:   '<path d="M9 14L4 9l5-5"/><path d="M4 9h10a6 6 0 010 12h-3"/>',
+        sun:    '<circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.9 4.9l1.4 1.4M17.7 17.7l1.4 1.4M2 12h2M20 12h2M4.9 19.1l1.4-1.4M17.7 6.3l1.4-1.4"/>',
+        moon:   '<path d="M20 14.5A8.5 8.5 0 119.5 4a7 7 0 0010.5 10.5z"/>',
+        sparkle:'<path d="M12 3l1.8 5.2L19 10l-5.200 1.800L12 17l-1.800-5.200L5 10l5.200-1.800z"/>'
+    };
+    const icon = (name, cls) => {
+        const s = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
+        s.setAttribute('viewBox', '0 0 24 24'); s.setAttribute('fill', 'none'); s.setAttribute('stroke', 'currentColor');
+        s.setAttribute('stroke-width', '2.2'); s.setAttribute('stroke-linecap', 'round'); s.setAttribute('stroke-linejoin', 'round');
+        s.setAttribute('aria-hidden', 'true'); if (cls) s.setAttribute('class', cls);
+        s.innerHTML = SVG[name] || '';
+        return s;
+    };
+
+    function h(tag, attrs, ...kids) {
+        const el = document.createElement(tag);
+        for (const [k, v] of Object.entries(attrs || {})) {
+            if (k === 'class') el.className = v;
+            else if (k.startsWith('on')) el.addEventListener(k.slice(2), v);
+            else if (v != null && v !== false) el.setAttribute(k, v === true ? '' : v);
+        }
+        for (const kid of kids.flat(Infinity)) if (kid != null && kid !== false) el.append(kid.nodeType ? kid : document.createTextNode(kid));
+        return el;
+    }
+
+    let toastTimer;
+    function say(text, bad) {
+        const box = $('toast');
+        clearTimeout(toastTimer);
+        if (!text) { box.replaceChildren(); return; }
+        box.replaceChildren(h('div', { class: 'toast' + (bad ? ' err' : '') }, icon(bad ? 'alert' : 'check'), h('span', {}, text)));
+        toastTimer = setTimeout(() => box.replaceChildren(), bad ? 8000 : 5000);
+    }
+
+    async function send(path, body) {
+        const opts = { method: 'POST', headers: { 'Accept': 'application/json' } };
+        if (body != null) { opts.headers['Content-Type'] = 'application/json'; opts.body = JSON.stringify(body); }
+        let res;
+        try { res = await fetch(base + path, opts); }
+        catch { throw new Error('Network error. Check your connection and try again.'); }
+        let data;
+        if ((res.headers.get('content-type') || '').includes('json')) data = await res.json().catch(() => ({}));
+        else {
+            const text = (await res.text().catch(() => '')).trim();
+            data = { text: text.startsWith('<') ? '' : text.slice(0, 200) };   // never show raw HTML error pages
+        }
+        if (!res.ok) throw new Error(data.detail || data.title || data.text || 'Something went wrong. Please try again.');
+        return data;
+    }
+
+    async function devCall(path) {
+        const res = await fetch(path + encodeURIComponent(token), { method: 'POST' });
+        const d = await res.json().catch(() => ({}));
+        if (!res.ok) throw new Error(d.detail || d.title || 'Development action failed.');
+        return d;
+    }
+
+    //  theme 
+    const darkQuery = window.matchMedia ? window.matchMedia('(prefers-color-scheme: dark)') : { matches: false };
+    const isDark = () => {
+        const t = document.documentElement.getAttribute('data-theme');
+        return t ? t === 'dark' : !!darkQuery.matches;
+    };
+    function paintTheme() {
+        const dark = isDark(), b = $('theme');
+        b.replaceChildren(icon(dark ? 'sun' : 'moon'));
+        b.setAttribute('aria-label', dark ? 'Switch to light mode' : 'Switch to dark mode');
+        b.title = b.getAttribute('aria-label');
+        const meta = document.querySelector('meta[name="theme-color"]');
+        if (meta) meta.setAttribute('content', dark ? '#0b110e' : '#08502f');
+    }
+    $('theme').addEventListener('click', () => {
+        const next = isDark() ? 'light' : 'dark';
+        document.documentElement.setAttribute('data-theme', next);
+        try { localStorage.setItem('nexa-theme', next); } catch (e) { /* private mode: still works for this visit */ }
+        paintTheme();
+    });
+    if (darkQuery.addEventListener) darkQuery.addEventListener('change', paintTheme);
+    paintTheme();
+
+    //  state 
+    let devMode = false;
+    let view = null;           // last order from the server
+    let lastSnapshot = '';     // skips redraws when nothing changed
+    let reasonDraft = '';      // keeps what the buyer typed across redraws
+    let declineOpen = false;
+    let loadSeq = 0;           // ignores out-of-order responses
+    let busy = false;          // a button action is in flight: do not redraw underneath it
+    let gallery = [];          // photos in the lightbox
+    let galleryAt = 0;
+    let timerEl = null;
+
+    const TERMINAL = ['Settled', 'Cancelled', 'Refunded'];
+
+    async function load(silent) {
+        const seq = ++loadSeq;
+        let v;
+        try {
+            const res = await fetch(base, { headers: { 'Accept': 'application/json' }, cache: 'no-store' });
+            if (res.status === 404) { const e = new Error('This tracking link was not found.'); e.notFound = true; throw e; }
+            if (!res.ok) throw new Error('Could not load your order. Please try again.');
+            v = await res.json();
+        } catch (e) {
+            if (silent || seq !== loadSeq) return;
+            if (e.notFound || !view) root.replaceChildren(h('div', { class: 'card center' },
+                h('div', { class: 'big-icon grey' }, icon(e.notFound ? 'x' : 'alert')),
+                h('h2', {}, e.notFound ? 'Order not found' : 'Could not load your order'),
+                h('p', { class: 'sub' }, e instanceof TypeError ? 'Network error. Check your connection and try again.' : e.message),
+                !e.notFound && h('button', { type: 'button', class: 'btn quiet', onclick: () => load() }, 'Try again')));
+            else say(e.message, true);
+            return;
+        }
+        if (seq !== loadSeq) return;
+        const snap = JSON.stringify(v);
+        if (snap === lastSnapshot) return;
+        lastSnapshot = snap;
+        view = v;
+        if (!busy) draw(v);
+    }
+
+    //  lightbox 
+    function openZoom(list, i) { gallery = list; galleryAt = i; showZoom(); if (!zoom.open) zoom.showModal(); }
+    function showZoom() {
+        const p = gallery[galleryAt];
+        $('zoomimg').src = p.src; $('zoomimg').alt = p.label;
+        $('zcount').textContent = `${p.label} · ${galleryAt + 1} of ${gallery.length}`;
+        $('zprev').disabled = $('znext').disabled = gallery.length < 2;
+    }
+    const step = d => { galleryAt = (galleryAt + d + gallery.length) % gallery.length; showZoom(); };
+    zoom.addEventListener('click', e => { if (e.target === zoom || e.target.classList.contains('lb')) zoom.close(); });
+    $('zoomclose').addEventListener('click', () => zoom.close());
+    $('zprev').addEventListener('click', e => { e.stopPropagation(); step(-1); });
+    $('znext').addEventListener('click', e => { e.stopPropagation(); step(1); });
+    zoom.addEventListener('keydown', e => { if (e.key === 'ArrowLeft') step(-1); else if (e.key === 'ArrowRight') step(1); });
+
+    //  pieces 
+    const STATUS = {
+        Created: ['Waiting for you', true], PaymentPending: ['Awaiting payment', true], Funded: ['Money held', false],
+        PickedUp: ['On the way', true], Delivered: ['At your door', true], Released: ['Accepted', false], Settled: ['Complete', false],
+        Rejected: ['Item rejected', false], Returned: ['Returned', false], Refunded: ['Refunded', false], Disputed: ['In review', false], Cancelled: ['Cancelled', false]
+    };
+
+    const HINTS = ['Check the photos match what you want', 'Your money is locked until you accept the item',
+        'The courier seals the item and photographs it', 'The courier brings it to you',
+        'Inspect it, then give the courier your code', 'The seller and courier are paid'];
+
+    function hero(v) {
+        const [label, live] = STATUS[v.state] || [v.state, false];
+        const item = v.itemAmount || 0, ship = v.deliveryFee || 0;
+        return h('section', { class: 'hero' },
+            h('div', { class: 'hero-row' },
+                h('div', {}, h('div', { class: 'order-no' }, v.orderNumber), h('h1', {}, v.itemDescription),
+                    v.sellerName && h('p', { class: 'seller' }, 'Sold by ' + v.sellerName)),
+                h('span', { class: 'pill' + (live ? ' live' : '') }, h('i'), label)),
+            h('div', { class: 'amount' }, h('strong', {}, money(v.total, v.currency)), h('span', {}, 'total, held in escrow')),
+            (item || ship) ? h('div', { class: 'split' },
+                h('span', {}, 'Item ', h('b', {}, money(item, v.currency))), h('span', {}, 'Delivery ', h('b', {}, money(ship, v.currency)))) : null);
+    }
+
+    function photoGrid(list, groupSrc) {
+        return h('div', { class: 'photos' }, list.map((p, i) => h('button', {
+            type: 'button', class: 'thumb', 'aria-label': 'View ' + p.label.toLowerCase(), onclick: () => openZoom(groupSrc, i)
+        }, h('img', { src: p.src, alt: p.label, loading: 'lazy' }), h('span', { class: 'n' }, String(i + 1)), h('span', { class: 'zoom' }, icon('zoom')))));
+    }
+
+    function decisionCard(v, listing) {
+        const reason = h('textarea', { rows: 3, placeholder: 'What is different? (for example colour, model or condition)', 'aria-label': 'What is different about the item?' });
+        reason.value = reasonDraft;
+        reason.addEventListener('input', () => { reasonDraft = reason.value; });
+
+        const yes = h('button', { type: 'button', class: 'btn' }, icon('check'), 'Yes, this is the item. Continue to payment');
+        const no = h('button', { type: 'button', class: 'btn ghost' }, 'No, this is not the item');
+        const lock = on => { yes.disabled = on; no.disabled = on; };
+
+        yes.addEventListener('click', async () => {
+            busy = true; lock(true);
+            const label = yes.lastChild; label.textContent = 'Setting up your payment…';
+            yes.prepend(h('span', { class: 'spin' }));
+            try {
+                const r = await send('/confirm-product', null);
+                say(r.paymentReady === false ? r.message : 'Thanks. Pay using the details below.', r.paymentReady === false);
+            } catch (e) { say(e.message, true); }
+            busy = false; lastSnapshot = ''; await load();
+        });
+        no.addEventListener('click', async () => {
+            if (!reason.value.trim()) { say('Tell us what is different first.', true); reason.focus(); return; }
+            busy = true; lock(true);
+            try {
+                await send('/decline-product', { reason: reason.value.trim() });
+                reasonDraft = ''; declineOpen = false;
+                say('Thanks. Our team will contact you. No money has moved.');
+            } catch (e) { say(e.message, true); }
+            busy = false; lastSnapshot = ''; await load();
+        });
+
+        const det = h('details', { class: 'decline' }, h('summary', {}, 'Not the right item?'),
+            h('p', { class: 'muted', style: 'margin:.5rem 0 0' }, 'Tell us what is different and we will sort it out. You will not be charged.'), reason, no);
+        if (declineOpen) det.setAttribute('open', '');
+        det.addEventListener('toggle', () => { declineOpen = det.open; });
+
+        return h('section', { class: 'card action' },
+            h('div', { class: 'eyebrow' }, 'Step 1 · Before you pay'),
+            h('h2', {}, 'Is this the item you are buying?'),
+            h('p', { class: 'sub' }, 'Look closely at all ' + listing.length + ' photos. We only ask you to pay once you are happy.'),
+            photoGrid(listing, listing),
+            h('ul', { class: 'checks' },
+                ['Right model, colour and size', 'Condition matches what the seller told you', 'Nothing important is missing'].map(t => h('li', {}, icon('check'), t))),
+            v.productDeclined && h('div', { class: 'code-note' }, icon('alert'), h('span', {}, 'You told us this is not the item. Our team is looking into it. If it is fine after all, you can still approve it below.')),
+            yes, det);
+    }
+
+    function payCard(v) {
+        if (!v.payToAccount) {
+            // Approved, but the provider has not given payment details (yet). Approving again resumes it safely.
+            const again = h('button', { type: 'button', class: 'btn' }, icon('undo'), 'Get my payment details');
+            again.addEventListener('click', async () => {
+                busy = true; again.disabled = true;
+                try {
+                    const r = await send('/confirm-product', null);
+                    say(r.paymentReady === false ? r.message : 'Your payment details are ready.', r.paymentReady === false);
+                } catch (e) { say(e.message, true); }
+                busy = false; lastSnapshot = ''; await load();
+            });
+            return h('section', { class: 'card warn' },
+                h('div', { class: 'big-icon amber' }, icon('clock')),
+                h('h2', { class: 'center' }, 'Your approval is saved'),
+                h('p', { class: 'sub center' }, 'We are still setting up your payment. Tap below to try again. You have not been charged.'), again);
+        }
+
+        const copy = h('button', { type: 'button', class: 'btn small quiet', style: 'margin-top:.6rem' }, icon('copy'), 'Copy account number');
+        copy.addEventListener('click', async () => {
+            try { await navigator.clipboard.writeText(v.payToAccount); say('Account number copied.'); }
+            catch {
+                const r = document.createRange(); r.selectNodeContents(document.getElementById('acct'));
+                const s = getSelection(); s.removeAllRanges(); s.addRange(r); say('Account number selected. Copy it now.');
+            }
+        });
+        timerEl = h('span', { class: 'timer' }, icon('clock'), h('span', { id: 'left' }, ''));
+        tick();
+
+        return h('section', { class: 'card action' },
+            h('div', { class: 'eyebrow' }, 'Step 2 · Pay'),
+            h('h2', {}, 'Send your payment'),
+            h('p', { class: 'sub' }, 'Pay exactly this amount from your mobile money or bank to the account below.'),
+            h('div', { class: 'paybox' },
+                h('small', {}, 'Amount to pay'), h('div', { class: 'payamt' }, money(v.total, v.currency)),
+                h('small', { style: 'margin-top:.7rem' }, 'Pay to account'), h('div', { class: 'acct', id: 'acct' }, v.payToAccount),
+                timerEl),
+            h('div', { style: 'text-align:center' }, copy),
+            h('div', { class: 'waiting' }, h('span', { class: 'dots' }, h('i'), h('i'), h('i')),
+                'We update this page the moment your payment arrives. No need to refresh.'));
+    }
+
+    function statusCard(v) {
+        const done = (ic, title, text, cls) => h('section', { class: 'card center' },
+            h('div', { class: 'big-icon pop ' + (cls || '') }, icon(ic)), h('h2', {}, title), h('p', { class: 'sub', style: 'margin:.25rem 0 0' }, text));
+        switch (v.state) {
+            case 'Funded': return done('shield', 'Payment received', `Your money is held safely. ${v.courierName ? v.courierName + ' will' : 'The courier will'} collect the item from ${v.sellerName || 'the seller'} next.`);
+            case 'PickedUp': return h('section', { class: 'card center' },
+                h('div', { class: 'big-icon pop' }, icon('truck')), h('h2', {}, 'On the way to you'),
+                h('p', { class: 'sub', style: 'margin:.25rem 0 0' }, `${v.courierName || 'Your courier'} has the item${v.sealId ? ', sealed with tag ' + v.sealId : ''}.`),
+                h('div', { class: 'code-note', style: 'text-align:left' }, icon('key'),
+                    h('span', {}, h('b', {}, 'Your 6-digit code was sent by SMS. '), 'Only give it to the courier after you have opened the item and checked it.')));
+            case 'Delivered': return h('section', { class: 'card action center' },
+                h('div', { class: 'big-icon pop' }, icon('pin')), h('h2', {}, 'The courier is at your door'),
+                h('p', { class: 'sub', style: 'margin:.25rem 0 0' }, 'Open the item and check it. Happy? Tell the courier your 6-digit code. Not happy? Do not share it.'));
+            case 'Released': return done('sparkle', 'Item accepted', 'Thank you. The seller and courier are being paid now.');
+            case 'Settled': return done('check', 'All done', 'The seller and courier have been paid. Enjoy your purchase.');
+            case 'Rejected': case 'Returned': return done('undo', 'Item sent back', 'You rejected the item. Your money stays frozen while our team arranges your refund.', 'amber');
+            case 'Refunded': return done('undo', 'Refund on its way', 'Your money is being returned to your mobile money.', 'grey');
+            case 'Disputed': return done('alert', 'Under review', 'Our team is reviewing this order. Your money stays safe until they decide.', 'amber');
+            case 'Cancelled': return done('x', 'Order cancelled', 'This order was cancelled. If you paid, our team will refund you.', 'grey');
+            default: return null;
+        }
+    }
+
+    function timeline(v) {
+        const steps = v.steps || [];
+        return h('section', { class: 'card' }, h('h2', {}, 'Where your order is'),
+            h('ol', { class: 'timeline' }, steps.map((s, i) => {
+                const off = i >= HINTS.length;
+                return h('li', { class: (s.done ? 'done ' : '') + (s.current ? 'current ' : '') + (off ? 'off' : ''), 'aria-current': s.current ? 'step' : null },
+                    h('span', { class: 'dot' }, s.done && !off ? icon('check') : off ? icon('alert') : String(i + 1)),
+                    h('span', { class: 't-label' }, s.label, HINTS[i] && (s.current || !s.done) && h('span', { class: 't-hint' }, HINTS[i])));
+            })));
+    }
+
+    function evidence(v) {
+        const mk = kind => (v.photos || []).filter(p => p.kind === kind).map((p, i, a) => ({
+            src: `${base}/photos/${encodeURIComponent(p.id)}`, label: `${kind === 'Pickup' ? 'Packed at pickup' : 'At your door'} photo ${i + 1} of ${a.length}`
+        }));
+        const groups = [['Packed at pickup', mk('Pickup')], ['At your door', mk('Arrival')]].filter(g => g[1].length);
+        if (!groups.length) return null;
+        return h('section', { class: 'card' }, h('h2', {}, 'Photos taken by the courier'),
+            h('p', { class: 'sub' }, 'Kept as proof of the item\'s condition at every step.'),
+            groups.map(([title, list]) => h('div', { class: 'photo-group' }, h('p', { class: 'photo-label' }, title), photoGrid(list, list))));
+    }
+
+    // dev-only actions per order state: [endpoint, button label, success message]
+    const DEV_ACTIONS = {
+        PaymentPending: ['/dev/pay-by-token/', 'Simulate payment', () => 'Test payment received. Your money is now held in escrow.'],
+        Funded:         ['/dev/pickup/', 'Simulate courier pickup', d => 'Courier picked up the item.' + (d.seal ? ' Seal: ' + d.seal : '') + ' The buyer code is in the test SMS inbox.'],
+        PickedUp:       ['/dev/deliver/', 'Simulate courier arrival', () => 'Courier has arrived at your location.'],
+        Delivered:      ['/dev/accept/', 'Simulate buyer accepting (gives the code)', () => 'Item accepted. Funds released to the seller.']
+    };
+
+    function devCard(v) {
+        const dev = devMode && DEV_ACTIONS[v.state];
+        if (!dev) return null;
+        const [path, label, okMsg] = dev;
+        const btn = h('button', { type: 'button', class: 'btn' }, label);
+        btn.addEventListener('click', async () => {
+            busy = true; btn.disabled = true;
+            try { say(okMsg(await devCall(path))); } catch (e) { say(e.message, true); }
+            busy = false; lastSnapshot = ''; await load();
+        });
+        return h('section', { class: 'dev' }, h('h2', {}, '🛠 Developer tools'), h('p', {}, 'Plays the next step of the real flow. Only shown in development.'), btn);
+    }
+
+    function tick() {
+        if (!timerEl || !view || !view.paymentExpiresAt) return;
+        const left = new Date(view.paymentExpiresAt).getTime() - Date.now();
+        const span = timerEl.querySelector('#left');
+        if (!span) return;
+        if (left <= 0) { span.textContent = 'Payment window ended'; timerEl.classList.add('late'); return; }
+        const m = Math.floor(left / 60000), s = Math.floor((left % 60000) / 1000);
+        span.textContent = `Pay within ${m}:${String(s).padStart(2, '0')}`;
+        timerEl.classList.remove('late');
+    }
+
+    function draw(v) {
+        document.title = `${v.orderNumber} · Nexa Escrow`;
+        const typing = document.activeElement && document.activeElement.tagName === 'TEXTAREA';
+        const selStart = typing ? document.activeElement.selectionStart : 0;
+        timerEl = null;
+
+        const listing = (v.photos || []).filter(p => p.kind === 'Listing').map((p, i, a) => ({
+            src: `${base}/photos/${encodeURIComponent(p.id)}`, label: `Item photo ${i + 1} of ${a.length}`
+        }));
+
+        const nodes = [hero(v)];
+        if (v.canConfirmProduct) nodes.push(decisionCard(v, listing));
+        else if (v.state === 'PaymentPending') nodes.push(payCard(v));
+        else nodes.push(statusCard(v));
+
+        const dev = devCard(v); if (dev) nodes.push(dev);
+        nodes.push(timeline(v));
+        if (!v.canConfirmProduct && listing.length) nodes.push(h('section', { class: 'card' }, h('h2', {}, 'The item you approved'), h('p', { class: 'sub' }, 'Photos from the seller\'s listing.'), photoGrid(listing, listing)));
+        const ev = evidence(v); if (ev) nodes.push(ev);
+
+        root.replaceChildren(...nodes);
+        if (typing) { const t = root.querySelector('textarea'); if (t) { t.focus(); t.setSelectionRange(selStart, selStart); } }
+    }
+
+    //  refresh 
+    // Poll faster while we are waiting for something to happen to the order, slower once it is finished.
+    function schedule() {
+        const wait = view && TERMINAL.includes(view.state) ? 60000 : 6000;
+        setTimeout(() => { if (!document.hidden && !zoom.open && !busy) load(true); schedule(); }, wait);
+    }
+    setInterval(tick, 1000);
+    document.addEventListener('visibilitychange', () => { if (!document.hidden) load(true); });
+
+    // Dev tools only if /dev/ping answers with a real (non-HTML) response
+    fetch('/dev/ping')
+        .then(r => { devMode = r.ok && !(r.headers.get('content-type') || '').includes('text/html'); })
+        .catch(() => {})
+        .finally(() => load().then(schedule));
+})();
+</script>
+</body>
+</html>

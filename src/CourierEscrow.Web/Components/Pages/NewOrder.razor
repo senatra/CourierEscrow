@@ -1,0 +1,356 @@
+@page "/orders/new"
+@inject EscrowApiClient Api
+@inject NavigationManager Nav
+
+<PageTitle>New order · Nexa Escrow</PageTitle>
+<p class="breadcrumb"><a href="/orders">← Orders</a></p>
+<div class="page-head">
+    <h1>New order</h1>
+</div>
+<p class="lede muted">Walk through the deal, then the buyer, seller and photos. Nothing is created until you confirm on the last step.</p>
+
+<Notice Message="@error" Kind="error" />
+
+<div class="wizard">
+    <Stepper Labels="@Steps" Current="@step" OnSelect="Go" AriaLabel="Create order steps" />
+
+    @if (step == 0)
+    {
+        <div class="wizard-pane">
+            <h3>The deal</h3>
+            <p class="wizard-hint">What is being sold, what it costs, and who carries it.</p>
+            <label>Item <input class="input" @bind="f.ItemDescription" placeholder="Samsung A15, sealed box" /></label>
+            <div class="two-col">
+                <label>Item price (kwacha) <input class="input" inputmode="decimal" @bind="f.ItemKwacha" placeholder="300000" /></label>
+                <label>Delivery fee (kwacha) <input class="input" inputmode="decimal" @bind="f.DeliveryKwacha" placeholder="8000" /></label>
+            </div>
+            @if (Fmt.TryParseKwacha(f.ItemKwacha, out var item) && Fmt.TryParseKwacha(f.DeliveryKwacha, out var delivery) && item > 0)
+            {
+                <p class="muted small">Buyer pays <strong>@Fmt.Money(item + delivery)</strong>. The platform fee is taken from the item price when the money is released.</p>
+            }
+            <div class="two-col">
+                <label>Pickup address <input class="input" @bind="f.PickupAddress" placeholder="Area 25 market" /></label>
+                <label>Delivery address <input class="input" @bind="f.DeliveryAddress" placeholder="Kawale, Lilongwe" /></label>
+            </div>
+            <label>
+                Courier
+                <select class="input" @bind="f.CourierId">
+                    <option value="@Guid.Empty">Choose a courier…</option>
+                    @foreach (var c in couriers.Where(c => c.Status == "Active"))
+                    {
+                        <option value="@c.Id">@c.Name (@c.Phone)</option>
+                    }
+                </select>
+            </label>
+        </div>
+    }
+    else if (step == 1)
+    {
+        <div class="wizard-pane">
+            <h3>Buyer</h3>
+            <p class="wizard-hint">The person who pays and later gives the release code.</p>
+            <div class="two-col">
+                <label>Name <input class="input" @bind="f.BuyerName" /></label>
+                <label>Phone <input class="input" inputmode="tel" @bind="f.BuyerPhone" placeholder="0888 123 456" /></label>
+            </div>
+            <label>
+                Wallet network (for refunds)
+                <select class="input" @bind="f.BuyerNetwork"><option value="">Not known</option><option>Airtel</option><option>Tnm</option></select>
+            </label>
+        </div>
+    }
+    else if (step == 2)
+    {
+        <div class="wizard-pane">
+            <h3>Seller</h3>
+            <p class="wizard-hint">Who receives the item price after a successful handover.</p>
+            <div class="two-col">
+                <label>Name <input class="input" @bind="f.SellerName" /></label>
+                <label>Phone <input class="input" inputmode="tel" @bind="f.SellerPhone" placeholder="0999 123 456" /></label>
+            </div>
+            <label>
+                Wallet network (for payouts)
+                <select class="input" @bind="f.SellerNetwork"><option value="">Choose…</option><option>Airtel</option><option>Tnm</option></select>
+            </label>
+        </div>
+    }
+    else if (step == 3)
+    {
+        <div class="wizard-pane">
+            <h3>Item photos</h3>
+            <p class="wizard-hint">Add exactly @RequiredPhotos clear photos of the item. The buyer must confirm them before they can pay. (@photos.Count of @RequiredPhotos added)</p>
+
+            <label class="photo-drop">
+                <InputFile OnChange="OnFiles" accept="image/*" multiple />
+                <span class="photo-drop-title">Tap to add photos</span>
+                <span class="muted small">JPG or PNG · resized automatically</span>
+            </label>
+
+            @if (photoError is not null)
+            {
+                <p class="photo-error">@photoError</p>
+            }
+
+            @if (photos.Count > 0)
+            {
+                <ul class="photo-thumbs">
+                    @foreach (var p in photos)
+                    {
+                        <li>
+                            <img src="@p.DataUrl" alt="@p.FileName" />
+                            <button type="button" class="photo-remove" aria-label="Remove @p.FileName" @onclick="() => RemovePhoto(p)">×</button>
+                        </li>
+                    }
+                </ul>
+            }
+        </div>
+    }
+    else
+    {
+        <div class="wizard-pane">
+            <h3>Review</h3>
+            <p class="wizard-hint">Check this once. Creating the order posts it to the ledger. The buyer gets a link to confirm the photos, and payment starts when they do.</p>
+            <dl class="kv review">
+                <dt>Item</dt>
+                <dd>@Blank(f.ItemDescription)</dd>
+                <dt>Item price</dt>
+                <dd>@(Fmt.TryParseKwacha(f.ItemKwacha, out var i) ? Fmt.Money(i) : "—")</dd>
+                <dt>Delivery</dt>
+                <dd>@(Fmt.TryParseKwacha(f.DeliveryKwacha, out var d) ? Fmt.Money(d) : "—")</dd>
+                <dt>Buyer pays</dt>
+                <dd>
+                    @if (Fmt.TryParseKwacha(f.ItemKwacha, out var ii) && Fmt.TryParseKwacha(f.DeliveryKwacha, out var dd) && ii > 0)
+                    {
+                        <strong>@Fmt.Money(ii + dd)</strong>
+                    }
+                    else
+                    {
+                        <span>—</span>
+                    }
+                </dd>
+                <dt>Route</dt>
+                <dd>@Blank(f.PickupAddress) → @Blank(f.DeliveryAddress)</dd>
+                <dt>Courier</dt>
+                <dd>@(couriers.FirstOrDefault(c => c.Id == f.CourierId)?.Name ?? "—")</dd>
+                <dt>Buyer</dt>
+                <dd>@Blank(f.BuyerName) <span class="muted mono">@Blank(f.BuyerPhone)</span> @(string.IsNullOrWhiteSpace(f.BuyerNetwork) ? "" : "· " + f.BuyerNetwork)</dd>
+                <dt>Seller</dt>
+                <dd>@Blank(f.SellerName) <span class="muted mono">@Blank(f.SellerPhone)</span> @(string.IsNullOrWhiteSpace(f.SellerNetwork) ? "" : "· " + f.SellerNetwork)</dd>
+                <dt>Photos</dt>
+                <dd>
+                    <ul class="photo-thumbs photo-thumbs-small">
+                        @foreach (var p in photos)
+                        {
+                            <li><img src="@p.DataUrl" alt="@p.FileName" /></li>
+                        }
+                    </ul>
+                </dd>
+            </dl>
+        </div>
+    }
+
+    <div class="form-actions">
+        @if (step > 0)
+        {
+            <button type="button" class="btn" @onclick="Back">Back</button>
+        }
+        @if (step < Steps.Length - 1)
+        {
+            <button type="button" class="btn primary" @onclick="Next">Continue</button>
+        }
+        else
+        {
+            <button type="button" class="btn primary" disabled="@busy" @onclick="Submit">@(busy ? "Creating…" : "Create order")</button>
+        }
+        <a class="btn ghost" href="/orders">Cancel</a>
+    </div>
+</div>
+
+<style>
+    .photo-drop {
+        position: relative;
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        gap: .25rem;
+        padding: 1.75rem 1rem;
+        border: 2px dashed var(--border, #b9c0c8);
+        border-radius: 12px;
+        text-align: center;
+        cursor: pointer;
+    }
+
+        .photo-drop:hover, .photo-drop:focus-within {
+            border-color: var(--accent, #2563eb);
+            background: rgba(37, 99, 235, .05);
+        }
+
+        .photo-drop input[type=file] {
+            position: absolute;
+            inset: 0;
+            width: 100%;
+            height: 100%;
+            opacity: 0;
+            cursor: pointer;
+        }
+
+    .photo-drop-title {
+        font-weight: 600;
+    }
+
+    .photo-error {
+        color: #b42318;
+        font-size: .875rem;
+        margin: .5rem 0 0;
+    }
+
+    .photo-thumbs {
+        list-style: none;
+        padding: 0;
+        margin: 1rem 0 0;
+        display: grid;
+        grid-template-columns: repeat(auto-fill, minmax(96px, 1fr));
+        gap: .75rem;
+    }
+
+        .photo-thumbs li {
+            position: relative;
+            aspect-ratio: 1;
+        }
+
+        .photo-thumbs img {
+            width: 100%;
+            height: 100%;
+            object-fit: cover;
+            border-radius: 8px;
+        }
+
+    .photo-thumbs-small {
+        grid-template-columns: repeat(auto-fill, minmax(56px, 1fr));
+        gap: .5rem;
+        margin: 0;
+        max-width: 22rem;
+    }
+
+    .photo-remove {
+        position: absolute;
+        top: 4px;
+        right: 4px;
+        width: 24px;
+        height: 24px;
+        padding: 0;
+        border: 0;
+        border-radius: 50%;
+        background: rgba(0, 0, 0, .65);
+        color: #fff;
+        font-size: 1rem;
+        line-height: 1;
+        cursor: pointer;
+    }
+</style>
+
+@code {
+    private static readonly string[] Steps = ["Deal", "Buyer", "Seller", "Photos", "Review"];
+    private const int RequiredPhotos = 3;
+    private const long MaxBytes = 5 * 1024 * 1024;
+
+    private readonly NewOrderForm f = new();
+    private readonly List<Photo> photos = [];
+    private List<CourierRow> couriers = [];
+    private bool busy;
+    private string? error;
+    private string? photoError;
+    private int step;
+
+    private sealed record Photo(string FileName, byte[] Bytes)
+    {
+        public string DataUrl { get; } = "data:image/jpeg;base64," + Convert.ToBase64String(Bytes);
+    }
+
+    protected override async Task OnInitializedAsync()
+    {
+        try { couriers = await Api.GetCouriers(); }
+        catch (Exception ex) { error = ex.Message; }
+    }
+
+    private void Go(int to)
+    {
+        if (to < step) { step = to; error = null; }
+    }
+
+    private void Back() { if (step > 0) { step--; error = null; } }
+
+    private void Next()
+    {
+        error = Validate(step);
+        if (error is null) step++;
+    }
+
+    private string? Validate(int s) => s switch
+    {
+        0 => ValidateDeal(),
+        1 => string.IsNullOrWhiteSpace(f.BuyerName) || string.IsNullOrWhiteSpace(f.BuyerPhone) ? "Enter the buyer's name and phone." : null,
+        2 => string.IsNullOrWhiteSpace(f.SellerName) || string.IsNullOrWhiteSpace(f.SellerPhone) ? "Enter the seller's name and phone."
+            : string.IsNullOrWhiteSpace(f.SellerNetwork) ? "Choose the seller's wallet network so they can be paid." : null,
+        3 => photos.Count != RequiredPhotos ? $"Add exactly {RequiredPhotos} photos of the item." : null,
+        _ => null
+    };
+
+    private string? ValidateDeal()
+    {
+        if (string.IsNullOrWhiteSpace(f.ItemDescription)) return "Describe the item.";
+        if (!Fmt.TryParseKwacha(f.ItemKwacha, out var item) || item <= 0) return "Enter the item price in kwacha.";
+        if (!Fmt.TryParseKwacha(f.DeliveryKwacha, out _)) return "Enter the delivery fee in kwacha (0 if none).";
+        if (f.CourierId == Guid.Empty) return "Choose a courier.";
+        return null;
+    }
+
+    private async Task OnFiles(InputFileChangeEventArgs e)
+    {
+        photoError = null;
+        foreach (var file in e.GetMultipleFiles(20))
+        {
+            if (photos.Count >= RequiredPhotos) { photoError = $"You can add up to {RequiredPhotos} photos."; break; }
+            try
+            {
+                var resized = await file.RequestImageFileAsync("image/jpeg", 1280, 1280);
+                using var ms = new MemoryStream();
+                await resized.OpenReadStream(MaxBytes).CopyToAsync(ms);
+                photos.Add(new Photo(file.Name, ms.ToArray()));
+            }
+            catch (Exception ex) { photoError = $"Couldn't use {file.Name}: {ex.Message}"; }
+        }
+    }
+
+    private void RemovePhoto(Photo p)
+    {
+        photos.Remove(p);
+        photoError = null;
+    }
+
+    private async Task Submit()
+    {
+        error = ValidateDeal() ?? Validate(1) ?? Validate(2) ?? Validate(3);
+        if (error is not null)
+        {
+            step = error.Contains("buyer", StringComparison.OrdinalIgnoreCase) ? 1
+                 : error.Contains("seller", StringComparison.OrdinalIgnoreCase) ? 2
+                 : error.Contains("photos", StringComparison.OrdinalIgnoreCase) ? 3 : 0;
+            return;
+        }
+        if (!Fmt.TryParseKwacha(f.ItemKwacha, out var item) || !Fmt.TryParseKwacha(f.DeliveryKwacha, out var delivery)) return;
+
+        busy = true;
+        try
+        {
+            // Photos first: the API requires the 3 listing photos when the order is created.
+            var uploadIds = await Api.UploadListingPhotos(photos.Select(p => p.Bytes));
+            var order = await Api.CreateOrder(f, item, delivery, uploadIds);
+            Nav.NavigateTo($"/orders/{order.Id}");
+        }
+        catch (Exception ex) { error = ex.Message; }
+        finally { busy = false; }
+    }
+
+    private static string Blank(string? v) => string.IsNullOrWhiteSpace(v) ? "—" : v;
+}

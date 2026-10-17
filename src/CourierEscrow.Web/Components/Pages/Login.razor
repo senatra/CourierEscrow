@@ -1,0 +1,58 @@
+@page "/login"
+@layout AuthLayout
+@attribute [AllowAnonymous]
+@inject EscrowApiClient Api
+@inject NavigationManager Nav
+
+<PageTitle>Sign in · Nexa Escrow</PageTitle>
+
+<h1>Sign in</h1>
+@if (Expired is not null) { <Notice Message="Your session ended. Sign in again." Kind="info" /> }
+<Notice Message="@error" Kind="error" />
+
+<EditForm Model="Input" FormName="login" OnValidSubmit="SignIn" method="post" class="form">
+    <label>Username
+        <InputText class="input" @bind-Value="Input.Username" autocomplete="username" autocapitalize="none" spellcheck="false" />
+    </label>
+    <label>Password
+        <InputText class="input" type="password" @bind-Value="Input.Password" autocomplete="current-password" />
+    </label>
+    <button type="submit" class="btn primary block">Sign in</button>
+</EditForm>
+
+@code {
+    [CascadingParameter] private HttpContext? HttpContext { get; set; }
+    [SupplyParameterFromQuery] private string? ReturnUrl { get; set; }
+    [SupplyParameterFromQuery] private string? Expired { get; set; }
+    [SupplyParameterFromForm] private LoginInput Input { get; set; } = new();
+
+    private string? error;
+
+    protected override void OnInitialized()
+    {
+        if (Expired is null && HttpContext?.User.Identity?.IsAuthenticated == true)
+            Nav.NavigateTo(ConsoleSession.SafeReturnUrl(ReturnUrl));
+    }
+
+    private async Task SignIn()
+    {
+        if (HttpContext is null) return;
+        try
+        {
+            var login = await Api.Login(Input.Username.Trim(), Input.Password);
+            await ConsoleSession.SignInAsync(HttpContext, login);
+            Nav.NavigateTo(login.User.MustChangePassword ? "/account/password" : ConsoleSession.SafeReturnUrl(ReturnUrl));
+        }
+        catch (ApiException ex)
+        {
+            error = ex.Message;
+            Input.Password = "";
+        }
+    }
+
+    private sealed class LoginInput
+    {
+        public string Username { get; set; } = "";
+        public string Password { get; set; } = "";
+    }
+}

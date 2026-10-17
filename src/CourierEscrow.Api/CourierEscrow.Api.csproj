@@ -1,0 +1,6 @@
+<Project Sdk="Microsoft.NET.Sdk.Web">
+  <ItemGroup>
+    <ProjectReference Include="..\CourierEscrow.Application\CourierEscrow.Application.csproj" />
+    <ProjectReference Include="..\CourierEscrow.Infrastructure\CourierEscrow.Infrastructure.csproj" />
+  </ItemGroup>
+</Project>

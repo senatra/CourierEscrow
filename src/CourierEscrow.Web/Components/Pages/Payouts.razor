@@ -1,0 +1,79 @@
+@page "/payouts"
+@inject EscrowApiClient Api
+
+<PageTitle>Payouts · Nexa Escrow</PageTitle>
+<div class="page-head">
+    <h1>Payouts</h1>
+    <div class="head-actions">
+        <select class="input" @bind="status" @bind:after="Load">
+            <option value="">All</option>
+            @foreach (var s in new[] { "Queued", "Submitted", "Confirmed", "NeedsReview" }) { <option value="@s">@s</option> }
+        </select>
+        <button class="btn" @onclick="Load">Refresh</button>
+    </div>
+</div>
+<p class="lede muted">Money leaving the platform. Only a confirmed payout clears the ledger. A payout that needs review stays here until a person fixes the cause and retries.</p>
+
+<Notice Message="@error" Kind="error" />
+<Notice Message="@info" Kind="info" />
+
+@if (rows is null && error is null) { <p class="muted">Loading…</p> }
+else if (rows is not null)
+{
+    @if (rows.Count == 0)
+    {
+        <EmptyState Title="Nothing here" Body="Queued, submitted and problem payouts will show in this list." />
+    }
+    else
+    {
+        <div class="table-wrap">
+        <table class="table">
+            <thead><tr><th>Order</th><th>To</th><th>Wallet</th><th class="num">Amount</th><th>Status</th><th>Detail</th><th></th></tr></thead>
+            <tbody>
+            @foreach (var p in rows)
+            {
+                <tr>
+                    <td><a href="/orders/@p.EscrowId">@Fmt.Short(p.EscrowId)</a></td>
+                    <td>@p.Kind · @p.Beneficiary</td>
+                    <td class="mono small">@p.Network @p.Wallet</td>
+                    <td class="num">@Fmt.Money(p.Amount, p.Currency)</td>
+                    <td><StateBadge State="@p.Status" /></td>
+                    <td class="small">@p.LastError @(p.Attempts > 0 ? $"· {p.Attempts} attempt(s)" : "")</td>
+                    <td>
+                        @if (p.Status == "NeedsReview")
+                        {
+                            <button class="btn small" disabled="@busy" @onclick="() => Retry(p, false)">Retry</button>
+                            <button class="btn small" disabled="@busy" @onclick="() => Retry(p, true)" title="Use a fresh idempotency key. Needed after the provider refused the first one.">Retry (new key)</button>
+                        }
+                    </td>
+                </tr>
+            }
+            </tbody>
+        </table>
+        </div>
+    }
+}
+
+@code {
+    [SupplyParameterFromQuery(Name = "status")] public string? StatusQuery { get; set; }
+    private List<PayoutRow>? rows;
+    private string status = "";
+    private string? error, info;
+    private bool busy;
+
+    protected override async Task OnInitializedAsync() { status = StatusQuery ?? ""; await Load(); }
+
+    private async Task Load()
+    {
+        try { error = null; rows = await Api.GetPayouts(status); }
+        catch (Exception ex) { error = ex.Message; }
+    }
+
+    private async Task Retry(PayoutRow p, bool newKey)
+    {
+        busy = true; error = null;
+        try { await Api.RetryPayout(p.Id, newKey); info = "Payout queued again."; await Load(); }
+        catch (Exception ex) { error = ex.Message; }
+        finally { busy = false; }
+    }
+}

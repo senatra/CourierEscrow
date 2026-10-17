@@ -1,0 +1,117 @@
+@page "/disputes"
+@inject EscrowApiClient Api
+
+<PageTitle>Disputes · Nexa Escrow</PageTitle>
+<div class="page-head">
+    <h1>Disputes</h1>
+    <div class="head-actions"><button class="btn" @onclick="Load">Refresh</button></div>
+</div>
+<p class="lede muted">Funds stay frozen until a reviewer decides, within 48 hours. A decision needs a written reason and posts to the ledger automatically.</p>
+
+<Notice Message="@error" Kind="error" />
+<Notice Message="@info" Kind="info" />
+
+@if (rows is null && error is null) { <p class="muted">Loading…</p> }
+else if (rows is not null)
+{
+    @if (rows.Count == 0)
+    {
+        <EmptyState Title="No disputes" Body="When a courier or ops flags a problem, it will wait here until someone decides." />
+    }
+    @foreach (var x in rows)
+    {
+        var reviewing = reviewId == x.Id;
+        <div class="card" style="margin-bottom:1rem">
+            <div class="tx-head">
+                <strong><a href="/orders/@x.EscrowId">Order @Fmt.Short(x.EscrowId)</a></strong>
+                <StateBadge State="@x.Status" />
+            </div>
+            <p>@x.Reason <span class="muted small">· raised by @x.RaisedBy, was @x.PriorState</span></p>
+            @if (x.Status == "Open")
+            {
+                var overdue = x.DueAt < DateTimeOffset.UtcNow;
+                <p class="small @(overdue ? "bad" : "muted")">Decision due @Fmt.When(x.DueAt) @(overdue ? "— OVERDUE" : "")</p>
+                @if (!reviewing)
+                {
+                    <div class="two-col">
+                        <label>Outcome
+                            <select class="input" @bind="outcome[x.Id]">
+                                <option value="RefundBuyerKeepDeliveryFee">Refund the item, courier keeps the delivery fee</option>
+                                <option value="RefundBuyerFull">Refund everything (courier unpaid)</option>
+                                <option value="ReleaseToSeller">Release to the seller</option>
+                            </select>
+                        </label>
+                        <label>Written reason <input class="input" @bind="why[x.Id]" @bind:event="oninput" placeholder="What the evidence shows" /></label>
+                    </div>
+                    <div class="form-actions">
+                        <button class="btn primary" disabled="@string.IsNullOrWhiteSpace(why[x.Id])" @onclick="() => StartReview(x)">Review decision</button>
+                    </div>
+                }
+                else
+                {
+                    <div class="wizard-pane">
+                        <h3>Confirm this decision</h3>
+                        <p class="wizard-hint">This queues payouts and cannot be undone from the console.</p>
+                        <dl class="kv review">
+                            <dt>Outcome</dt><dd>@Plain(outcome[x.Id])</dd>
+                            <dt>Reason</dt><dd>@why[x.Id]</dd>
+                        </dl>
+                    </div>
+                    <div class="form-actions">
+                        <button class="btn" @onclick="() => reviewId = null">Back</button>
+                        <button class="btn primary" disabled="@busy" @onclick="() => Decide(x)">@(busy ? "Submitting…" : "Submit decision")</button>
+                    </div>
+                }
+            }
+            else
+            {
+                <p class="small">Decided by @x.DecidedBy: <strong>@x.Outcome</strong>. Buyer @Fmt.Money(x.BuyerAmount) · seller @Fmt.Money(x.SellerAmount) · courier @Fmt.Money(x.CourierAmount) · platform @Fmt.Money(x.PlatformAmount). <em>@x.DecisionReason</em></p>
+            }
+        </div>
+    }
+}
+
+@code {
+    private List<DisputeRow>? rows;
+    private readonly Dictionary<Guid, string> outcome = [];
+    private readonly Dictionary<Guid, string> why = [];
+    private Guid? reviewId;
+    private string? error, info;
+    private bool busy;
+
+    protected override Task OnInitializedAsync() => Load();
+
+    private async Task Load()
+    {
+        try
+        {
+            error = null;
+            rows = await Api.GetDisputes();
+            foreach (var r in rows) { outcome.TryAdd(r.Id, "RefundBuyerKeepDeliveryFee"); why.TryAdd(r.Id, ""); }
+        }
+        catch (Exception ex) { error = ex.Message; }
+    }
+
+    private void StartReview(DisputeRow x)
+    {
+        if (string.IsNullOrWhiteSpace(why[x.Id])) { error = "Write the reason first."; return; }
+        error = null;
+        reviewId = x.Id;
+    }
+
+    private async Task Decide(DisputeRow x)
+    {
+        busy = true; error = null;
+        try { await Api.DecideDispute(x.Id, outcome[x.Id], why[x.Id]); info = "Decision recorded. Payouts are queued."; reviewId = null; await Load(); }
+        catch (Exception ex) { error = ex.Message; }
+        finally { busy = false; }
+    }
+
+    private static string Plain(string code) => code switch
+    {
+        "RefundBuyerKeepDeliveryFee" => "Refund the item; courier keeps the delivery fee",
+        "RefundBuyerFull" => "Refund everything; courier unpaid",
+        "ReleaseToSeller" => "Release to the seller",
+        _ => code
+    };
+}

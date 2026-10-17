@@ -1,0 +1,11 @@
+@if (!string.IsNullOrWhiteSpace(Message))
+{
+    <div class="notice @Kind" role="@(Kind == "error" ? "alert" : "status")">@Message</div>
+}
+
+@code {
+    [Parameter] public string? Message { get; set; }
+
+    /// <summary>"success", "error" or "info".</summary>
+    [Parameter] public string Kind { get; set; } = "info";
+}

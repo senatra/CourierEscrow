@@ -1,0 +1,26 @@
+<nav class="stepper" aria-label="@AriaLabel">
+    <ol>
+        @for (var i = 0; i < Labels.Length; i++)
+        {
+            var idx = i;
+            var cls = idx < Current ? "done" : idx == Current ? "active" : "";
+            <li class="@cls">
+                <button type="button"
+                        class="stepper-btn"
+                        disabled="@(idx > Current)"
+                        aria-current="@(idx == Current ? "step" : null)"
+                        @onclick="() => OnSelect.InvokeAsync(idx)">
+                    <span class="stepper-num">@(idx < Current ? "✓" : (idx + 1).ToString())</span>
+                    <span class="stepper-label">@Labels[idx]</span>
+                </button>
+            </li>
+        }
+    </ol>
+</nav>
+
+@code {
+    [Parameter, EditorRequired] public string[] Labels { get; set; } = [];
+    [Parameter] public int Current { get; set; }
+    [Parameter] public EventCallback<int> OnSelect { get; set; }
+    [Parameter] public string AriaLabel { get; set; } = "Steps";
+}

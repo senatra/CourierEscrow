@@ -1,0 +1,30 @@
+<Router AppAssembly="@typeof(Program).Assembly">
+    <Found Context="routeData">
+        <AuthorizeRouteView RouteData="@routeData" DefaultLayout="@typeof(MainLayout)">
+            <Authorizing>
+                <p class="muted" style="padding:2rem">Checking your session…</p>
+            </Authorizing>
+            <NotAuthorized>
+                @if (context.User.Identity?.IsAuthenticated == true)
+                {
+                    <LayoutView Layout="@typeof(MainLayout)">
+                        <h1>Not allowed</h1>
+                        <p class="muted">Your role does not include this page. <a href="/">Back to the dashboard</a>.</p>
+                    </LayoutView>
+                }
+                else
+                {
+                    <RedirectToLogin />
+                }
+            </NotAuthorized>
+        </AuthorizeRouteView>
+        <FocusOnNavigate RouteData="@routeData" Selector="h1" />
+    </Found>
+    <NotFound>
+        <PageTitle>Not found · Courier Escrow</PageTitle>
+        <LayoutView Layout="@typeof(MainLayout)">
+            <h1>Page not found</h1>
+            <p class="muted">There is nothing at this address. <a href="/">Back to the dashboard</a>.</p>
+        </LayoutView>
+    </NotFound>
+</Router>
