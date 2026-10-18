@@ -1,7 +1,7 @@
 using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
-using CourierEscrow.Application;
+using CourierEscrow.Application.Interfaces;
 using CourierEscrow.Domain;
 using Microsoft.Extensions.Options;
 
@@ -21,6 +21,7 @@ public sealed class MockProviderOptions
 public sealed class MockPaymentProvider(IOptions<MockProviderOptions> options, TimeProvider clock) : IPaymentProvider
 {
     public string Name => "mock";
+    public bool SupportsPayoutInquiry => false;
     public string SignatureHeader => "X-Signature";
     public string EventHeader => "X-Event";
 
@@ -41,11 +42,11 @@ public sealed class MockPaymentProvider(IOptions<MockProviderOptions> options, T
 
     public Task<long?> GetBalanceAsync(string currency, CancellationToken ct) => Task.FromResult<long?>(null);
 
-    public bool VerifyWebhook(byte[] rawBody, string? signature)
+    public Task<bool> VerifyWebhookAsync(byte[] rawBody, string? eventCode, string? signature, CancellationToken ct)
     {
-        if (string.IsNullOrWhiteSpace(signature)) return false;
+        if (string.IsNullOrWhiteSpace(signature)) return Task.FromResult(false);
         var expected = Convert.ToHexString(HMACSHA256.HashData(Encoding.UTF8.GetBytes(options.Value.WebhookSecret), rawBody)).ToLowerInvariant();
-        return CryptographicOperations.FixedTimeEquals(Encoding.ASCII.GetBytes(expected), Encoding.ASCII.GetBytes(signature.Trim().ToLowerInvariant()));
+        return Task.FromResult(CryptographicOperations.FixedTimeEquals(Encoding.ASCII.GetBytes(expected), Encoding.ASCII.GetBytes(signature.Trim().ToLowerInvariant())));
     }
 
     public ProviderNotification? ParseWebhook(string? eventCode, string body)

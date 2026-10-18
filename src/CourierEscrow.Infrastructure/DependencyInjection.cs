@@ -1,4 +1,4 @@
-using CourierEscrow.Application;
+using CourierEscrow.Application.Interfaces;
 using CourierEscrow.Infrastructure.Messaging;
 using CourierEscrow.Infrastructure.Payments;
 using CourierEscrow.Infrastructure.Persistence;

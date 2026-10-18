@@ -6,7 +6,9 @@
 
 <div class="shell @(navOpen ? "nav-open" : null)">
     <header class="topbar">
-        <button type="button" class="nav-toggle" aria-label="@(navOpen ? "Close menu" : "Open menu")" @onclick="ToggleNav">☰</button>
+        <button type="button" class="nav-toggle" aria-label="@(navOpen ? "Close menu" : "Open menu")" aria-expanded="@navOpen" aria-controls="primary-navigation" @onclick="ToggleNav">
+            <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 7h16M4 12h16M4 17h16" /></svg>
+        </button>
         <div class="topbar-copy">
             <span class="topbar-kicker">Nexa Escrow</span>
             <strong>@Section</strong>
@@ -35,7 +37,7 @@
                     </div>
                 </Authorized>
             </AuthorizeView>
-            <button class="btn theme-toggle ghost" title="Toggle theme" @onclick="ToggleTheme">@((isDark ? "☀️" : "🌙"))</button>
+            <button class="btn theme-toggle ghost" title="Toggle theme" aria-label="Toggle theme" @onclick="ToggleTheme">@((isDark ? "☀" : "☾"))</button>
             @if (Section != "New order")
             {
                 <a class="btn primary" href="/orders/new">New order</a>
@@ -156,6 +158,7 @@
         if (path.StartsWith("/couriers")) return "Couriers";
         if (path.StartsWith("/users")) return "Users";
         if (path.StartsWith("/reconciliation")) return "Reconciliation";
+        if (path.StartsWith("/payment-provider")) return "Payment provider";
         return "Ops";
     }
 

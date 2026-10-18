@@ -4,7 +4,7 @@ services:
     environment:
       POSTGRES_USER: postgres
       POSTGRES_PASSWORD: 1234
-      POSTGRES_DB: courier_escrow
+      POSTGRES_DB: courier_escrow_dev
     ports: ["5432:5432"]
     volumes: [pgdata:/var/lib/postgresql/data]
 

@@ -1,6 +1,9 @@
-using CourierEscrow.Application;
+using CourierEscrow.Application.Helpers;
+using CourierEscrow.Application.Interfaces;
 using CourierEscrow.Application.Services;
+using CourierEscrow.Application.Services.Support;
 using CourierEscrow.Domain;
+using CourierEscrow.Domain.Models;
 using CourierEscrow.Domain.Ledger;
 using CourierEscrow.Tests.Fakes;
 
@@ -237,15 +240,92 @@ public class ReconciliationTests
     }
 
     [Fact]
-    public async Task Provider_says_paid_but_we_never_confirmed_is_flagged()
+    public async Task Provider_success_confirms_the_payout_and_posts_the_ledger_without_a_webhook()
+    {
+        var env = await TestEnv.NewAsync();
+        var escrow = await env.ReleasedOrderAsync();
+        await env.Payouts.ExecuteDueAsync();
+        foreach (var p in env.Db.Payouts.Rows) env.Provider.Remote.Add(new ProviderPayoutRecord(p.ProviderRef!, p.Reference, p.Amount, RemoteStatus.Succeeded, p.Kind == PayoutKind.Seller ? 125 : 0, "MWK"));
+
+        var r = await env.Recon.RunAsync(Day);
+        Assert.Equal(0, r.Run.ExceptionCount);
+        Assert.Equal(2, r.Run.MatchedCount);
+        Assert.All(env.Db.Payouts.Rows, p => Assert.Equal(PayoutStatus.Confirmed, p.Status));
+        Assert.Equal(125, env.Db.Payouts.Rows.Single(p => p.Kind == PayoutKind.Seller).Fee);
+        Assert.Equal(EscrowState.Settled, (await env.Orders.GetAsync(escrow.Id)).State);
+        Assert.True((await env.Recon.RunAsync(Day)).Items.Count == 0);
+    }
+
+    [Fact]
+    public async Task Provider_failure_is_flagged_for_review_before_a_manual_retry()
     {
         var env = await TestEnv.NewAsync();
         await env.ReleasedOrderAsync();
         await env.Payouts.ExecuteDueAsync();
-        foreach (var p in env.Db.Payouts.Rows) env.Provider.Remote.Add(new ProviderPayoutRecord(p.ProviderRef!, null, p.Amount, RemoteStatus.Succeeded));
+        var payout = env.Db.Payouts.Rows.First();
+        var oldReference = payout.Reference;
+        env.Provider.Remote.Add(new ProviderPayoutRecord(payout.ProviderRef!, oldReference, payout.Amount, RemoteStatus.Failed));
 
-        var r = await env.Recon.RunAsync(Day);
-        Assert.Equal(2, r.Items.Count(i => i.Kind == ReconciliationKind.Mismatch && i.Detail.Contains("not confirmed")));
+        var result = await env.Recon.RunAsync(Day);
+
+        Assert.Equal(PayoutStatus.NeedsReview, payout.Status);
+        Assert.Equal(oldReference, payout.Reference);
+        Assert.Contains("review before retry", payout.LastError!, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains(result.Items, i => i.Kind == ReconciliationKind.Mismatch && i.Reference == oldReference);
+    }
+
+    [Fact]
+    public async Task Provider_reversal_reverses_the_confirmed_payout_and_flags_the_order()
+    {
+        var env = await TestEnv.NewAsync();
+        var escrow = await env.ReleasedOrderAsync();
+        await env.Payouts.ExecuteDueAsync();
+        foreach (var payout in env.Db.Payouts.Rows)
+            env.Provider.Remote.Add(new ProviderPayoutRecord(payout.ProviderRef!, payout.Reference, payout.Amount, RemoteStatus.Succeeded));
+        await env.Recon.RunAsync(Day);
+
+        env.Provider.Remote.Clear();
+        var reversed = env.Db.Payouts.Rows.First();
+        env.Provider.Remote.Add(new ProviderPayoutRecord(reversed.ProviderRef!, reversed.Reference, reversed.Amount, RemoteStatus.Reversed));
+        foreach (var payout in env.Db.Payouts.Rows.Where(p => p.Id != reversed.Id))
+            env.Provider.Remote.Add(new ProviderPayoutRecord(payout.ProviderRef!, payout.Reference, payout.Amount, RemoteStatus.Succeeded));
+
+        var result = await env.Recon.RunAsync(Day);
+
+        Assert.Equal(PayoutStatus.NeedsReview, reversed.Status);
+        Assert.Contains(result.Items, i => i.Kind == ReconciliationKind.Mismatch && i.Reference == reversed.Reference);
+        Assert.Contains(env.Db.Ledger.Rows, t => t.Kind == "payout_reversal");
+        Assert.NotNull((await env.Orders.GetAsync(escrow.Id)).OpsFlag);
+    }
+
+    [Fact]
+    public async Task Unknown_provider_payout_status_is_not_treated_as_a_failure()
+    {
+        var env = await TestEnv.NewAsync();
+        await env.ReleasedOrderAsync();
+        await env.Payouts.ExecuteDueAsync();
+        var payout = env.Db.Payouts.Rows.First();
+        env.Provider.Remote.Add(new ProviderPayoutRecord(payout.ProviderRef!, payout.Reference, payout.Amount, RemoteStatus.Unknown));
+
+        await env.Recon.RunAsync(Day);
+
+        Assert.Equal(PayoutStatus.NeedsReview, payout.Status);
+        Assert.Contains("unrecognized", payout.LastError!, StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
+    public async Task Provider_without_payout_inquiry_does_not_create_false_internal_only_exceptions()
+    {
+        var env = await TestEnv.NewAsync();
+        await env.ReleasedOrderAsync();
+        await env.Payouts.ExecuteDueAsync();
+        env.Provider.SupportsPayoutInquiry = false;
+
+        var result = await env.Recon.RunAsync(Day);
+
+        Assert.Equal(0, result.Run.ProviderCount);
+        Assert.DoesNotContain(result.Items, i => i.Kind == ReconciliationKind.InternalOnly);
+        Assert.Contains(result.Items, i => i.Reference == "provider" && i.Detail.Contains("inquiry", StringComparison.OrdinalIgnoreCase));
     }
 
     [Fact]

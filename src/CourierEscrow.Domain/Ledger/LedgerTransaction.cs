@@ -8,7 +8,7 @@ public enum Direction
 
 public sealed class LedgerEntry
 {
-    private LedgerEntry() { Account = ""; Currency = ""; } // EF Core
+    private LedgerEntry() { Account = ""; Currency = ""; } 
 
     public LedgerEntry(string account, Direction direction, long amount, string currency)
     {
@@ -39,7 +39,7 @@ public sealed class LedgerTransaction
 {
     private readonly List<LedgerEntry> _entries = [];
 
-    private LedgerTransaction() { Kind = ""; IdempotencyKey = ""; } // EF Core
+    private LedgerTransaction() { Kind = ""; IdempotencyKey = ""; } 
 
     public Guid Id { get; private set; }
     public Guid EscrowId { get; private set; }

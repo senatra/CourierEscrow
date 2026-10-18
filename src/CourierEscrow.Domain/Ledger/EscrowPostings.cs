@@ -1,3 +1,5 @@
+using CourierEscrow.Domain.Models;
+
 namespace CourierEscrow.Domain.Ledger;
 
 public static class Accounts

@@ -1,5 +1,6 @@
-using CourierEscrow.Application;
+using CourierEscrow.Application.Interfaces;
 using CourierEscrow.Application.Services;
+using CourierEscrow.Application.Services.Support;
 using CourierEscrow.Domain;
 using CourierEscrow.Infrastructure.Payments;
 
@@ -95,10 +96,11 @@ public static class PublicEndpoints
     //  Webhooks
     // Verify the signature, keep the raw body, answer quickly, then apply it.
     private static async Task<IResult> ReceiveWebhook(
-        string provider, HttpRequest request, IPaymentProvider active, WebhookService webhooks,
+        string provider, HttpRequest request, SwitchablePaymentProvider providers, WebhookService webhooks,
         ILogger<WebhookService> log, CancellationToken ct)
     {
-        if (!provider.Equals(active.Name, StringComparison.OrdinalIgnoreCase))
+        var callbackProvider = providers.GetProvider(provider);
+        if (callbackProvider is null)
             return Results.NotFound();
 
         using var ms = new MemoryStream();
@@ -106,9 +108,10 @@ public static class PublicEndpoints
 
         var (receipt, itemId) = await webhooks.ReceiveAsync(
             ms.ToArray(),
-            request.Headers[active.SignatureHeader].FirstOrDefault(),
-            request.Headers[active.EventHeader].FirstOrDefault(),
-            ct);
+            request.Headers[callbackProvider.SignatureHeader].FirstOrDefault(),
+            request.Headers[callbackProvider.EventHeader].FirstOrDefault(),
+            ct,
+            callbackProvider);
 
         if (receipt == WebhookReceipt.Unauthorized)
         {
@@ -205,7 +208,12 @@ public static class PublicEndpoints
 
     // ───────────────────────── Dev helpers ─────────────────────────
     private static MockPaymentProvider RequireMock(IPaymentProvider provider) =>
-        provider as MockPaymentProvider ?? throw new DomainValidationException("Only available with the mock provider.");
+        provider switch
+        {
+            MockPaymentProvider mock => mock,
+            SwitchablePaymentProvider { Active: MockPaymentProvider mock } => mock,
+            _ => throw new DomainValidationException("Only available with the simulation provider.")
+        };
 
     private static string CollectionBody(string reference, long amount, string currency) =>
         $"{{\"eventId\":\"dev-pay-{Guid.NewGuid():N}\",\"kind\":\"collection\",\"reference\":\"{reference}\",\"status\":\"succeeded\",\"amount\":{amount},\"currency\":\"{currency}\"}}";

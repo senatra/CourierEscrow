@@ -1,5 +1,7 @@
 using System.Net.Http.Json;
 using System.Text.Json;
+using System.Globalization;
+using CourierEscrow.Web.Models;
 using Microsoft.AspNetCore.Components;
 using Microsoft.AspNetCore.Components.Authorization;
 
@@ -129,7 +131,11 @@ public sealed class EscrowApiClient(HttpClient http, AuthenticationStateProvider
 
     public Task<List<ReconRun>> GetReconRuns() => Get<List<ReconRun>>("/admin/reconciliation");
     public Task<List<ReconItem>> GetReconItems(Guid runId) => Get<List<ReconItem>>($"/admin/reconciliation/{runId}");
-    public Task<JsonElement> RunReconciliation() => Post<JsonElement>("/admin/reconciliation/run");
+    public Task<JsonElement> RunReconciliation(DateOnly date) => Post<JsonElement>($"/admin/reconciliation/run?date={date.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture)}");
+    public Task<PaymentProviderSelection> GetPaymentProvider() => Get<PaymentProviderSelection>("/admin/payment-provider");
+    public Task<PaymentProviderSelection> SetPaymentProvider(string provider) => Post<PaymentProviderSelection>("/admin/payment-provider", new { provider });
+    public Task<JsonElement> TopUpOneKhusaSandbox(decimal amount) => Post<JsonElement>("/admin/payment-provider/sandbox-topup", new { amount });
+    public Task<JsonElement> SimulateOneKhusaPayment(Guid orderId) => Post<JsonElement>($"/admin/orders/{orderId}/simulate-onekhusa-payment");
 
     /// <summary>Development only: plays the provider's "payment succeeded" webhook against the mock provider.</summary>
     public Task<JsonElement> SimulateBuyerApproval(Guid orderId) => Post<JsonElement>($"/dev/approve/{orderId}");

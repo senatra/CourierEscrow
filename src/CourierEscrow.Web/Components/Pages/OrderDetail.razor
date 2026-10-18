@@ -55,7 +55,15 @@ else if (d is not null)
         @if (o.State is "PickedUp" or "Delivered") { <button class="btn" disabled="@busy" @onclick='() => Run(() => Api.ReissueOtp(o.Id), "A new code was sent to the buyer.")'>Reissue buyer code</button> }
         @if (o.State is "Funded" or "Returned") { <button class="btn danger" disabled="@busy" @onclick='() => Ask("refund")'>@(o.State == "Funded" ? "Refund buyer in full" : "Refund buyer (item amount)")</button> }
         @if (o.State is "Funded" or "PickedUp" or "Delivered" or "Rejected" or "Returned") { <button class="btn" disabled="@busy" @onclick='() => Ask("dispute")'>Open dispute</button> }
-        @if (dev && o.State == "PaymentPending") { <button class="btn" disabled="@busy" @onclick='() => Run(() => Api.SimulatePayment(o.Id), "Simulated the buyer paying. The money is now held in escrow.")'>Simulate payment <span class="tag">dev</span></button> }
+        @if (dev && o.State == "PaymentPending" && oneKhusaSandbox)
+        {
+            <AuthorizeView Roles="ops_admin,finance">
+                <Authorized>
+                    <button class="btn" disabled="@busy" @onclick='() => Run(() => Api.SimulateOneKhusaPayment(o.Id), "Simulated the OneKhusa sandbox payment. The money is now held in escrow.")'>Simulate OneKhusa payment <span class="tag">sandbox</span></button>
+                </Authorized>
+            </AuthorizeView>
+        }
+        else if (dev && o.State == "PaymentPending") { <button class="btn" disabled="@busy" @onclick='() => Run(() => Api.SimulatePayment(o.Id), "Simulated the buyer paying. The money is now held in escrow.")'>Simulate payment <span class="tag">dev</span></button> }
         @if (dev && o.TrackingToken is not null && o.State == "Funded") { <button class="btn" disabled="@busy" @onclick='() => Run(() => Api.SimulatePickup(o.TrackingToken), "Simulated the courier picking up the item. The buyer’s code is in the test SMS inbox below.")'>Simulate courier pickup <span class="tag">dev</span></button> }
         @if (dev && o.TrackingToken is not null && o.State == "PickedUp") { <button class="btn" disabled="@busy" @onclick='() => Run(() => Api.SimulateArrival(o.TrackingToken), "Simulated the courier arriving at the buyer.")'>Simulate courier arrival <span class="tag">dev</span></button> }
         @if (dev && o.TrackingToken is not null && o.State == "Delivered") { <button class="btn" disabled="@busy" @onclick='() => Run(() => Api.SimulateAccept(o.TrackingToken), "Simulated the buyer accepting and giving the code. Funds are released and payouts are queued.")'>Simulate buyer accepting <span class="tag">dev</span></button> }
@@ -227,6 +235,10 @@ else if (d is not null)
     private bool busy;
     private readonly Dictionary<Guid, string> images = [];
     private bool dev => Config.GetValue("Web:DevTools", false);
+    private PaymentProviderSelection? providerSelection;
+    private bool oneKhusaSandbox => providerSelection?.Selected.Equals("onekhusa", StringComparison.OrdinalIgnoreCase) == true
+        && providerSelection.Providers.Any(p => p.Name.Equals("onekhusa", StringComparison.OrdinalIgnoreCase)
+            && p.Environment?.Equals("Sandbox", StringComparison.OrdinalIgnoreCase) == true);
 
     private string HandoverUrl(string trackingToken) =>
         (Config["Api:BaseUrl"] ?? "http://localhost:5080").TrimEnd('/') + "/dev/handover?t=" + Uri.EscapeDataString(trackingToken);
@@ -243,7 +255,17 @@ else if (d is not null)
 
     private async Task Load()
     {
-        try { error = null; d = await Api.GetOrder(Id); if (dev) sms = await Api.DevSms(Id); }
+        try
+        {
+            error = null;
+            d = await Api.GetOrder(Id);
+            if (dev)
+            {
+                sms = await Api.DevSms(Id);
+                try { providerSelection = await Api.GetPaymentProvider(); }
+                catch (ApiException ex) when (ex.Status == 403) { providerSelection = null; }
+            }
+        }
         catch (Exception ex) { error = ex.Message; }
     }
 

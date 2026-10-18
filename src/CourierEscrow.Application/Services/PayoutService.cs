@@ -1,4 +1,8 @@
+using CourierEscrow.Application.Helpers;
+using CourierEscrow.Application.Interfaces;
+using CourierEscrow.Application.Services.Support;
 using CourierEscrow.Domain;
+using CourierEscrow.Domain.Models;
 using CourierEscrow.Domain.Ledger;
 
 namespace CourierEscrow.Application.Services;
@@ -78,6 +82,10 @@ public sealed class PayoutService(
                 await ApplyAsync(new PayoutNotification($"poll:{p.Reference}:ok", p.Reference, PayoutEventKind.Succeeded, status.Amount ?? p.Amount, status.Fee, null, p.ProviderRef), null, ct);
             else if (status.Status == RemoteStatus.Failed)
                 await ApplyAsync(new PayoutNotification($"poll:{p.Reference}:failed", p.Reference, PayoutEventKind.Failed, p.Amount, 0, status.Reason, p.ProviderRef), null, ct);
+            else if (status.Status == RemoteStatus.Reversed)
+                await ApplyAsync(new PayoutNotification($"poll:{p.Reference}:reversed", p.Reference, PayoutEventKind.Reversed, status.Amount ?? p.Amount, status.Fee, status.Reason, p.ProviderRef), null, ct);
+            else if (status.Status == RemoteStatus.RequiresReview)
+                await FlagProviderStatusAsync(p.Reference, status.Reason ?? "Provider requires manual review.", ct);
             count++;
         }
         return count;
@@ -132,6 +140,16 @@ public sealed class PayoutService(
         try { await commit.SaveAsync(ct, escrow); }
         catch (DuplicateOperationException) { return CallbackOutcome.Duplicate; }
         return outcome;
+    }
+
+    public async Task FlagProviderStatusAsync(string reference, string reason, CancellationToken ct = default)
+    {
+        var payout = await payouts.GetByReferenceAsync(reference, ct);
+        if (payout is null || payout.Status == PayoutStatus.NeedsReview) return;
+        var escrow = await escrows.GetAsync(payout.EscrowId, ct) ?? throw new NotFoundException("Order not found.");
+        payout.NeedsAttention(reason);
+        escrow.FlagForOps($"Payout {payout.Reference}: {reason}", Actors.System, clock.GetUtcNow());
+        await commit.SaveAsync(ct, escrow);
     }
 
     /// <summary>Ops retry after fixing the cause. A new key is used so the provider does not replay the earlier refusal.</summary>

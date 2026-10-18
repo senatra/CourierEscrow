@@ -1,4 +1,4 @@
-<aside class="sidebar @(Open ? "open" : null)">
+<aside class="sidebar @(Open ? "open" : null)" id="primary-navigation" aria-label="Primary navigation">
     <a class="brand" href="/" @onclick="Navigate">
         <span class="logo" aria-hidden="true">◈</span>
         <div>
@@ -9,18 +9,21 @@
 
     <nav>
         <p class="nav-label">Work</p>
-        <NavLink href="/" Match="NavLinkMatch.All" @onclick="Navigate">Dashboard</NavLink>
-        <NavLink href="/orders" Match="NavLinkMatch.Prefix" @onclick="Navigate">Orders</NavLink>
+        <NavLink href="/" Match="NavLinkMatch.All" @onclick="Navigate"><span class="nav-icon" aria-hidden="true">⌂</span>Dashboard</NavLink>
+        <NavLink href="/orders" Match="NavLinkMatch.Prefix" @onclick="Navigate"><span class="nav-icon" aria-hidden="true">▤</span>Orders</NavLink>
 
         <p class="nav-label">Money</p>
-        <NavLink href="/payouts" @onclick="Navigate">Payouts</NavLink>
-        <NavLink href="/disputes" @onclick="Navigate">Disputes</NavLink>
-        <NavLink href="/reconciliation" @onclick="Navigate">Reconciliation</NavLink>
+        <NavLink href="/payouts" @onclick="Navigate"><span class="nav-icon" aria-hidden="true">↗</span>Payouts</NavLink>
+        <NavLink href="/disputes" @onclick="Navigate"><span class="nav-icon" aria-hidden="true">◇</span>Disputes</NavLink>
+        <NavLink href="/reconciliation" @onclick="Navigate"><span class="nav-icon" aria-hidden="true">≋</span>Reconciliation</NavLink>
+        <AuthorizeView Roles="ops_admin,finance">
+            <NavLink href="/payment-provider" @onclick="Navigate"><span class="nav-icon" aria-hidden="true">◉</span>Payment provider</NavLink>
+        </AuthorizeView>
 
         <p class="nav-label">People</p>
-        <NavLink href="/couriers" @onclick="Navigate">Couriers</NavLink>
+        <NavLink href="/couriers" @onclick="Navigate"><span class="nav-icon" aria-hidden="true">♧</span>Couriers</NavLink>
         <AuthorizeView Roles="ops_admin">
-            <NavLink href="/users" @onclick="Navigate">Users</NavLink>
+            <NavLink href="/users" @onclick="Navigate"><span class="nav-icon" aria-hidden="true">♙</span>Users</NavLink>
         </AuthorizeView>
     </nav>
 

@@ -1,6 +1,6 @@
 using System.Security.Cryptography;
 using System.Text;
-using CourierEscrow.Application;
+using CourierEscrow.Application.Interfaces;
 
 namespace CourierEscrow.Infrastructure.Storage;
 

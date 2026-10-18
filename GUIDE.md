@@ -47,6 +47,8 @@ tests/
 scripts/demo.sh                  One order from start to SETTLED over HTTP.
 ```
 
+Within each layer, files are grouped by responsibility: domain entities live in `Domain/Models`, API requests, response DTOs and mappings are in `Api/Contracts`, application ports are in `Application/Interfaces`, and console API models are in `Web/Models` while API client code stays in `Web/Services`.
+
 ---
 
 ## 1. Run it
@@ -184,7 +186,7 @@ LOG=/path/to/api.log ./scripts/demo.sh   # reads the buyer's code from the log i
 | **Order page** | Lifecycle, actions (cancel, refund, dispute, reissue code), evidence, ledger, payouts, test SMS inbox |
 | **Payouts** | Every payout; retry the ones needing review (finance role) |
 | **Disputes** | Open disputes with their 48-hour clock; decide with a written reason (admin role) |
-| **Reconciliation** | Daily comparison of our records with the provider's |
+| **Reconciliation** | Compare a selected day's payouts with the provider report, apply confirmed outcomes to the ledger, flag failures/reversals/mismatches, and check escrow balances. Runs daily after 02:00 UTC; Simulation mode notes that provider payout inquiry is unavailable. |
 | **Couriers** | Add, suspend, reset a courier's device |
 
 ---
@@ -332,9 +334,9 @@ Set these in `appsettings.*.json`, a git-ignored `appsettings.Local.json`, or en
 
 | Setting | Meaning | Default |
 |---|---|---|
-| `ConnectionStrings:Escrow` | PostgreSQL connection | local dev DB |
-| `Database:AutoInit` | Create the schema on start (development only) | `true` in Development |
-| `Payments:Provider` | `Mock` or `OneKhusa` | `Mock` |
+| `ConnectionStrings:Escrow` | PostgreSQL connection | `courier_escrow_dev` in Development; set the Production connection with `ConnectionStrings__Escrow` |
+| `Database:AutoInit` | Create the database/schema and ledger guards on first start | `true` in Development and Production |
+| `Payments:Provider` | Initial mode: `Mock` (Simulation) or `OneKhusa`; finance can switch it in the console until the API restarts | `Mock` |
 | `Escrow:PlatformFeeBps` | Fee on the item, in basis points (200 = 2%), frozen per order | 200 |
 | `Escrow:PaymentWindowMinutes` | How long a buyer has to pay | 15 |
 | `Escrow:OtpLifetimeHours` | How long the buyer's code lasts | 24 |
@@ -347,18 +349,38 @@ Set these in `appsettings.*.json`, a git-ignored `appsettings.Local.json`, or en
 | `Cors:Origins` | Origins allowed to call the API from a browser | the console |
 | Console: `Api:BaseUrl`, `Api:Key`, `Web:DevTools` | Where the API is, the staff key the console uses, show the Simulate buttons | dev values |
 
-### Using OneKhusa instead of the mock
+Development connects to `courier_escrow_dev`; Production must use a separate database, e.g. `courier_escrow_prod`. Set the full production PostgreSQL connection string as the `ConnectionStrings__Escrow` secret. On first start, Production creates the database and schema when the configured PostgreSQL role has permission to create databases and tables. It does not seed the demo courier.
+
+The API listens on port `5080` in Development and `5081` in Production. The Production console defaults to `http://localhost:5081` when co-hosted with the API; if the API is on another host or has a public DNS name, set `Api__BaseUrl` in the console and `Storage__PublicBaseUrl` in the API to that reachable API URL. Allow inbound TCP `5081` in the host firewall or reverse proxy.
+
+### Switching between Simulation and OneKhusa
+
+Set the OneKhusa values below to enable it in the console. Missing required values are listed on the Payment provider page. Finance and ops admins can switch the API between Simulation and OneKhusa there; `Payments:Provider` remains the startup default, and a runtime selection resets when the API restarts. The OneKhusa environment (`Sandbox` or `Live`) stays configuration-driven.
 
 ```
 Payments__Provider=OneKhusa
 OneKhusa__Environment=Sandbox        OneKhusa__ApiKey=...          OneKhusa__ApiSecret=...
 OneKhusa__OrganisationId=...         OneKhusa__MerchantAccountNumber=...
-OneKhusa__CapturedBy=you@company.com  OneKhusa__WebhookSecret=...
+OneKhusa__CapturedBy=you@company.com
+OneKhusa__WebhookSecrets__PayoutSuccess=...       OneKhusa__WebhookSecrets__PayoutFailed=...
+OneKhusa__WebhookSecrets__PayoutReversed=...      OneKhusa__WebhookSecrets__PayRequestSuccess=...
+OneKhusa__WebhookSecrets__PayRequestReversed=...
 OneKhusa__AirtelConnectorId=...      OneKhusa__TnmConnectorId=...
 ```
 
-Find the connector ids with `GET /admin/provider/connectors` (finance key). Point OneKhusa's webhooks at
-`POST /webhooks/onekhusa`; the API verifies `X-OneKhusa-Webhook-Signature` (HMAC-SHA512 over the raw body).
+Find the connector ids with `GET /admin/provider/connectors` (finance key). The five registered Merchant Sandbox webhooks use `https://visor-trillion-devourer.ngrok-free.dev/webhooks/onekhusa`:
+
+| Portal event | Event code | Local secret setting |
+|---|---|---|
+| Successful Disbursement (Payout) | `payout.success` | `OneKhusa:WebhookSecrets:PayoutSuccess` |
+| Failed Disbursement (Payout) | `payout.failed` | `OneKhusa:WebhookSecrets:PayoutFailed` |
+| Reversed Disbursement (Payout) | `payout.reversed` | `OneKhusa:WebhookSecrets:PayoutReversed` |
+| Successful Request To Pay | `payrequest.success` | `OneKhusa:WebhookSecrets:PayRequestSuccess` |
+| Reversed Request To Pay | `payrequest.reversed` | `OneKhusa:WebhookSecrets:PayRequestReversed` |
+
+Each event has its own signature secret. The API uses the incoming `X-OneKhusa-Webhook-Event` code to select the secret, then verifies `X-OneKhusa-Webhook-Signature` with HMAC-SHA512. Callbacks for events without a configured secret are rejected. Sandbox and Live webhook signatures are separate; configure the keys for the currently selected OneKhusa environment.
+
+For local setup, copy the `OneKhusa` section from `src/CourierEscrow.Api/appsettings.Local.example.json` into the git-ignored `src/CourierEscrow.Api/appsettings.Local.json`, then paste each webhook's `webhookSignature` into its matching field. For Production, set the corresponding `OneKhusa__WebhookSecrets__...` environment secrets instead. OneKhusa's [Get Webhooks documentation](https://docs.onekhusa.com/api-reference/webhooks/getwebhooks) shows `eventCode` and `webhookSignature` for each configured webhook; its `GET /merchants/webhooks/getAll` endpoint can retrieve them for the merchant account.
 A OneKhusa request-to-pay returns a **timed account number** the buyer pays into, not a push prompt, so the SMS
 and the buyer page tell the buyer the account number, the amount and the deadline.
 **Nothing has been run against the real OneKhusa sandbox yet**; it is tested only against a fake server.

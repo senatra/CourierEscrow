@@ -1,4 +1,5 @@
 using CourierEscrow.Domain;
+using CourierEscrow.Domain.Models;
 using CourierEscrow.Domain.Ledger;
 
 namespace CourierEscrow.Tests;

@@ -106,8 +106,7 @@ public sealed class ReconciliationWorker(IServiceScopeFactory scopes, TimeProvid
         if (now.Hour < 2) return;
         var yesterday = DateOnly.FromDateTime(now.UtcDateTime.AddDays(-1));
         var service = sp.GetRequiredService<ReconciliationService>();
-        var last = (await service.ListRunsAsync(1, ct)).FirstOrDefault();
-        if (last is not null && last.ForDate >= yesterday) return;
+        if (await service.HasRunForDateAsync(yesterday, ct)) return;
 
         var result = await service.RunAsync(yesterday, ct);
         if (result.Run.ExceptionCount > 0) Log.LogWarning("Reconciliation for {Day}: {Count} exceptions.", yesterday, result.Run.ExceptionCount);

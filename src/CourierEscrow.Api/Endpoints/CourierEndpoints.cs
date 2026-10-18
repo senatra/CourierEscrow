@@ -1,13 +1,16 @@
 using CourierEscrow.Api.Auth;
 using CourierEscrow.Application;
+using CourierEscrow.Application.Interfaces;
 using CourierEscrow.Application.Services;
+using CourierEscrow.Application.Services.Support;
 using CourierEscrow.Domain;
+using CourierEscrow.Domain.Models;
 
 namespace CourierEscrow.Api.Endpoints;
 
 public static class CourierEndpoints
 {
-    // ───────────────────────── Route table ─────────────────────────
+    // Route table
     public static void MapCourierEndpoints(this IEndpointRouteBuilder app)
     {
         var g = app.MapGroup("/courier").WithTags("Courier");

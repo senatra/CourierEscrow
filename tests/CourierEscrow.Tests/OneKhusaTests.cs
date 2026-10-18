@@ -2,8 +2,9 @@ using System.Net;
 using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
-using CourierEscrow.Application;
-using CourierEscrow.Domain;
+using CourierEscrow.Application.Interfaces;
+using CourierEscrow.Application.Services.Support;
+using CourierEscrow.Domain.Models;
 using CourierEscrow.Infrastructure.OneKhusa;
 using CourierEscrow.Tests.Fakes;
 
@@ -60,7 +61,16 @@ public class OneKhusaProviderTests
         var options = new OneKhusaOptions
         {
             Environment = environment, ApiKey = "api-key", ApiSecret = "api-secret", OrganisationId = "ORG-123", MerchantAccountNumber = 12345678,
-            CapturedBy = "ops@example.com", WebhookSecret = "hook-secret", AirtelConnectorId = 769375, TnmConnectorId = 769380
+            CapturedBy = "ops@example.com",
+            WebhookSecrets = new OneKhusaWebhookSecretsOptions
+            {
+                PayoutSuccess = "payout-success-secret",
+                PayoutFailed = "payout-failed-secret",
+                PayoutReversed = "payout-reversed-secret",
+                PayRequestSuccess = "payrequest-success-secret",
+                PayRequestReversed = "payrequest-reversed-secret"
+            },
+            SandboxConnectorId = 212188, AirtelConnectorId = 769375, TnmConnectorId = 769380
         };
         return (new OneKhusaProvider(new Factory(api), options, new OneKhusaTokenCache(), clock), api, clock);
     }
@@ -189,7 +199,7 @@ public class OneKhusaProviderTests
         Assert.Equal("12345678", sent.Headers["X-Merchant-Account-Number"]);
         using var json = JsonDocument.Parse(sent.Body);
         Assert.Equal(769375, json.RootElement.GetProperty("connectorId").GetInt32());
-        Assert.Equal("265991234567", json.RootElement.GetProperty("beneficiaryAccountNumber").GetString());
+        Assert.Equal("111100000112", json.RootElement.GetProperty("beneficiaryAccountNumber").GetString());
         Assert.Equal("PO1234567890AB01", json.RootElement.GetProperty("sourceReferenceNumber").GetString());
         Assert.Equal(8_500m, json.RootElement.GetProperty("transactionAmount").GetDecimal());
     }
@@ -267,18 +277,29 @@ public class OneKhusaProviderTests
     {
         var (p, api, _) = Build();
         api.On("disbursements/single/getTransactions", HttpStatusCode.OK,
-            "[{\"transactionReferenceNumber\":\"GW1\",\"transactionAmount\":8500.00,\"transactionStatusCode\":\"S\"}," +
+            "[{\"transactionReferenceNumber\":\"GW1\",\"transactionAmount\":8500.00,\"transactionFee\":2.50,\"currencyCode\":\"MWK\",\"transactionStatusCode\":\"S\"}," +
             "{\"transactionReferenceNumber\":\"GW2\",\"transactionAmount\":10.50,\"transactionStatusCode\":\"P\"}," +
-            "{\"transactionReferenceNumber\":\"GW3\",\"transactionAmount\":1,\"transactionStatusCode\":\"F\"}]");
+            "{\"transactionReferenceNumber\":\"GW3\",\"transactionAmount\":1,\"transactionStatusCode\":\"F\"}," +
+            "{\"transactionReferenceNumber\":\"GW4\",\"transactionAmount\":1,\"transactionStatusCode\":\"R\"}," +
+            "{\"transactionReferenceNumber\":\"GW5\",\"transactionAmount\":1,\"transactionStatusCode\":\"T\"}," +
+            "{\"transactionReferenceNumber\":\"GW6\",\"transactionAmount\":1,\"transactionStatusCode\":\"X\"}," +
+            "{\"transactionReferenceNumber\":\"GW7\",\"transactionAmount\":1,\"transactionStatusCode\":\"?\"}]");
 
         var rows = await p.ListPayoutsAsync(new DateOnly(2026, 10, 14), default);
 
-        Assert.Equal(3, rows.Count);
+        Assert.Equal(7, rows.Count);
         Assert.Equal(850_000, rows[0].Amount);
         Assert.Equal(RemoteStatus.Succeeded, rows[0].Status);
+        Assert.Equal(250, rows[0].Fee);
+        Assert.Equal("MWK", rows[0].Currency);
         Assert.Equal(1_050, rows[1].Amount);
         Assert.Equal(RemoteStatus.Pending, rows[1].Status);
         Assert.Equal(RemoteStatus.Failed, rows[2].Status);
+        Assert.Equal(RemoteStatus.Reversed, rows[3].Status);
+        Assert.Equal(RemoteStatus.Pending, rows[4].Status);
+        Assert.Equal(RemoteStatus.RequiresReview, rows[5].Status);
+        Assert.Equal("X", rows[5].StatusCode);
+        Assert.Equal(RemoteStatus.Unknown, rows[6].Status);
         using var json = JsonDocument.Parse(api.Requests.Single(r => r.Url.EndsWith("getTransactions")).Body);
         Assert.Equal("2026-10-14", json.RootElement.GetProperty("transactionDate").GetString());
     }
@@ -294,23 +315,67 @@ public class OneKhusaProviderTests
 
     // webhooks
 
-    private static string Sign(byte[] body, string secret = "hook-secret") =>
-        Convert.ToHexString(HMACSHA512.HashData(Encoding.UTF8.GetBytes(secret), body)).ToLowerInvariant();
-
     [Fact]
-    public void Webhook_signatures_are_hmac_sha512_over_the_raw_body()
+    public async Task Webhook_signatures_are_hmac_sha512_over_the_raw_body()
     {
         var (p, _, _) = Build();
         var body = Encoding.UTF8.GetBytes("{\"transactionReferenceNumber\":\"TX1\"}");
-        var tampered = Encoding.UTF8.GetBytes("{\"transactionReferenceNumber\":\"TX2\"}");
+        var signature = Convert.ToHexString(HMACSHA512.HashData(Encoding.UTF8.GetBytes("payrequest-success-secret"), body)).ToLowerInvariant();
 
-        Assert.True(p.VerifyWebhook(body, Sign(body)));
-        Assert.True(p.VerifyWebhook(body, Sign(body).ToUpperInvariant()));
-        Assert.False(p.VerifyWebhook(body, Sign(body, "other-secret")));
-        Assert.False(p.VerifyWebhook(tampered, Sign(body)));
-        Assert.False(p.VerifyWebhook(body, null));
-        Assert.False(p.VerifyWebhook(body, "not-a-signature"));
-        Assert.False(p.VerifyWebhook([], Sign(body)));
+        Assert.True(await p.VerifyWebhookAsync(body, "payrequest.success", signature, default));
+        Assert.True(await p.VerifyWebhookAsync(body, "payrequest.success", signature.ToUpperInvariant(), default));
+        Assert.False(await p.VerifyWebhookAsync(body, "payrequest.success", "wrong", default));
+        Assert.False(await p.VerifyWebhookAsync([], "payrequest.success", signature, default));
+        Assert.False(await p.VerifyWebhookAsync(body, "payout.success", signature, default));
+        Assert.False(await p.VerifyWebhookAsync(body, "unknown.event", signature, default));
+
+        var secrets = new[]
+        {
+            ("payout.success", "payout-success-secret"),
+            ("payout.failed", "payout-failed-secret"),
+            ("payout.reversed", "payout-reversed-secret"),
+            ("payrequest.success", "payrequest-success-secret"),
+            ("payrequest.reversed", "payrequest-reversed-secret")
+        };
+        foreach (var (eventCode, eventSecret) in secrets)
+        {
+            var eventSignature = Convert.ToHexString(HMACSHA512.HashData(Encoding.UTF8.GetBytes(eventSecret), body)).ToLowerInvariant();
+            Assert.True(await p.VerifyWebhookAsync(body, eventCode, eventSignature, default));
+        }
+    }
+
+    [Fact]
+    public async Task Sandbox_accept_simulation_uses_the_saved_tan_connector_and_currency()
+    {
+        var (p, api, _) = Build();
+        api.On("addFakeTransaction", HttpStatusCode.OK, """
+            {"transaction":{"transactionReferenceNumber":"TXSIM1","transactionFee":2.50,"responseCode":"S100"}}
+            """);
+
+        var result = await p.SimulateAcceptRequestToPayAsync("11005533", 1_000_000, default);
+
+        Assert.Equal("TXSIM1", result.TransactionReference);
+        Assert.Equal(250, result.Fee);
+        var request = api.Requests.Single(r => r.Url.EndsWith("requestToPay/addFakeTransaction"));
+        using var json = JsonDocument.Parse(request.Body);
+        Assert.Equal(212188, json.RootElement.GetProperty("connectorId").GetInt32());
+        Assert.Equal("11005533", json.RootElement.GetProperty("timedAccountNumber").GetString());
+        Assert.Equal("MWK", json.RootElement.GetProperty("currencyCode").GetString());
+        Assert.Equal(10000m, json.RootElement.GetProperty("transactionAmount").GetDecimal());
+    }
+
+    [Fact]
+    public async Task Sandbox_merchant_topup_uses_the_configured_connector()
+    {
+        var (p, api, _) = Build();
+        api.On("accounts/topup", HttpStatusCode.OK, "{\"transaction\":{\"responseCode\":\"S100\"}}");
+
+        await p.TopUpSandboxMerchantAsync(1_000_000, default);
+
+        var request = api.Requests.Single(r => r.Url.EndsWith("collections/accounts/topup"));
+        using var json = JsonDocument.Parse(request.Body);
+        Assert.Equal(212188, json.RootElement.GetProperty("connectorId").GetInt32());
+        Assert.Equal(10000m, json.RootElement.GetProperty("topupAmount").GetDecimal());
     }
 
     [Fact]
@@ -367,6 +432,6 @@ public class OneKhusaProviderTests
     public void Missing_configuration_is_caught_at_startup()
     {
         Assert.Throws<InvalidOperationException>(() => new OneKhusaOptions().Validate());
-        new OneKhusaOptions { ApiKey = "k", ApiSecret = "s", OrganisationId = "o", MerchantAccountNumber = 1, CapturedBy = "a@b.c", WebhookSecret = "w" }.Validate();
+        new OneKhusaOptions { ApiKey = "k", ApiSecret = "s", OrganisationId = "o", MerchantAccountNumber = 1, CapturedBy = "a@b.c" }.Validate();
     }
 }

@@ -1,5 +1,5 @@
 using System.Net.Http.Json;
-using CourierEscrow.Application;
+using CourierEscrow.Application.Interfaces;
 using Microsoft.Extensions.Logging;
 
 namespace CourierEscrow.Infrastructure.Sms;

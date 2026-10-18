@@ -1,3 +1,5 @@
+using CourierEscrow.Domain.Models;
+
 namespace CourierEscrow.Domain;
 
 public abstract class DomainException(string message) : Exception(message);

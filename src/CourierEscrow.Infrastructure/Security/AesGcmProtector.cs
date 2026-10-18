@@ -1,6 +1,6 @@
 using System.Security.Cryptography;
 using System.Text;
-using CourierEscrow.Application;
+using CourierEscrow.Application.Interfaces;
 
 namespace CourierEscrow.Infrastructure.Security;
 
@@ -17,9 +17,13 @@ public sealed class AesGcmProtector : IProtector
 
     public AesGcmProtector(SecurityOptions options)
     {
+        if (string.IsNullOrWhiteSpace(options.DataKey))
+            throw new InvalidOperationException("Security:DataKey is missing. Configure the Security__DataKey environment variable with a base64-encoded 32-byte key.");
+
         try { _key = Convert.FromBase64String(options.DataKey); }
-        catch (FormatException) { throw new InvalidOperationException("Security:DataKey must be base64."); }
-        if (_key.Length != 32) throw new InvalidOperationException("Security:DataKey must decode to exactly 32 bytes.");
+        catch (FormatException) { throw new InvalidOperationException("Security:DataKey must be base64. Configure Security__DataKey with a base64-encoded 32-byte key."); }
+        if (_key.Length != 32)
+            throw new InvalidOperationException("Security:DataKey must decode to exactly 32 bytes. Configure Security__DataKey with a base64-encoded 32-byte key.");
     }
 
     public string Protect(string plain)

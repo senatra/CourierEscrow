@@ -1,9 +1,13 @@
 using CourierEscrow.Api.Auth;
-using CourierEscrow.Application;
+using CourierEscrow.Api.Contracts.Requests;
+using CourierEscrow.Application.Helpers;
+using CourierEscrow.Application.Interfaces;
 using CourierEscrow.Application.Services;
-using CourierEscrow.Domain;
+using CourierEscrow.Application.Services.Support;
 using CourierEscrow.Domain.Ledger;
+using CourierEscrow.Domain.Models;
 using CourierEscrow.Infrastructure.OneKhusa;
+using CourierEscrow.Infrastructure.Payments;
 
 namespace CourierEscrow.Api.Endpoints;
 
@@ -43,6 +47,10 @@ public static class AdminEndpoints
         g.MapGet("/reconciliation/{runId:guid}", ListReconciliationItems);
         g.MapPost("/reconciliation/run", RunReconciliation).RequireAuthorization(Policies.Finance);
         g.MapGet("/provider/connectors", ListProviderConnectors).RequireAuthorization(Policies.Finance);
+        g.MapGet("/payment-provider", GetPaymentProvider).RequireAuthorization(Policies.Finance);
+        g.MapPost("/payment-provider", SetPaymentProvider).RequireAuthorization(Policies.Finance);
+        g.MapPost("/payment-provider/sandbox-topup", TopUpSandboxMerchant).RequireAuthorization(Policies.Finance);
+        g.MapPost("/orders/{id:guid}/simulate-onekhusa-payment", SimulateOneKhusaPayment).RequireAuthorization(Policies.Finance);
         g.MapGet("/audit", GetAudit).RequireAuthorization(Policies.OpsAdmin);
 
         // couriers
@@ -196,10 +204,75 @@ public static class AdminEndpoints
     }
 
     // OneKhusa only: shows connector ids so Airtel and TNM can be set in configuration.
-    private static async Task<IResult> ListProviderConnectors(IPaymentProvider provider, CancellationToken ct) =>
-        provider is OneKhusaProvider ok
+    private static async Task<IResult> ListProviderConnectors(SwitchablePaymentProvider provider, CancellationToken ct) =>
+        provider.Active is OneKhusaProvider ok
             ? Results.Ok(await ok.ListConnectorsAsync(ct))
             : Results.Ok(Array.Empty<object>());
+
+    private static IResult GetPaymentProvider(SwitchablePaymentProvider provider) => Results.Ok(new
+    {
+        selected = provider.Active.Name,
+        providers = new object[]
+        {
+            new { name = "Mock", label = "Simulation", available = true, missingConfiguration = Array.Empty<string>(), environment = (string?)null, webhooksReady = true, currencyCode = (string?)null, sandboxConnectorConfigured = false, payoutConnectorsConfigured = false },
+            new
+            {
+                name = "OneKhusa",
+                label = "OneKhusa",
+                available = provider.MissingOneKhusaConfiguration.Count == 0,
+                missingConfiguration = provider.MissingOneKhusaConfiguration,
+                environment = provider.OneKhusaOptions.Environment,
+                webhooksReady = provider.OneKhusaOptions.MissingWebhookSecrets.Count == 0,
+                missingWebhookSecrets = provider.OneKhusaOptions.MissingWebhookSecrets,
+                webhookCallbackUrl = provider.OneKhusaOptions.WebhookCallbackUrl,
+                currencyCode = provider.OneKhusaOptions.CurrencyCode,
+                sandboxConnectorConfigured = provider.OneKhusaOptions.SandboxConnectorId > 0,
+                payoutConnectorsConfigured = provider.OneKhusaOptions.AirtelConnectorId > 0 && provider.OneKhusaOptions.TnmConnectorId > 0
+            }
+        }
+    });
+
+    private static IResult SetPaymentProvider(SetPaymentProviderRequest request, SwitchablePaymentProvider provider)
+    {
+        try
+        {
+            provider.Select(request.Provider);
+            return GetPaymentProvider(provider);
+        }
+        catch (InvalidOperationException ex)
+        {
+            return Results.BadRequest(new { detail = ex.Message, missingConfiguration = provider.MissingOneKhusaConfiguration });
+        }
+        catch (ArgumentException ex)
+        {
+            return Results.BadRequest(new { detail = ex.Message });
+        }
+    }
+
+    private static async Task<IResult> TopUpSandboxMerchant(SandboxTopUpRequest request, SwitchablePaymentProvider provider, CancellationToken ct)
+    {
+        if (provider.Active is not OneKhusaProvider oneKhusa || !provider.OneKhusaOptions.Environment.Equals("Sandbox", StringComparison.OrdinalIgnoreCase))
+            return Results.Conflict(new { detail = "Select OneKhusa Sandbox before adding test funds." });
+        if (request.Amount < 0.01m || request.Amount > 5_000_000_000m) return Results.BadRequest(new { detail = "Sandbox top-ups must be between 0.01 and 5,000,000,000 MWK." });
+        await oneKhusa.TopUpSandboxMerchantAsync(Money.ToMinor(request.Amount), ct);
+        return Results.Ok(new { toppedUp = request.Amount, currency = provider.OneKhusaOptions.CurrencyCode });
+    }
+
+    private static async Task<IResult> SimulateOneKhusaPayment(Guid id, SwitchablePaymentProvider provider, OrderService orders, CollectionService collections, CancellationToken ct)
+    {
+        if (provider.Active is not OneKhusaProvider oneKhusa || !provider.OneKhusaOptions.Environment.Equals("Sandbox", StringComparison.OrdinalIgnoreCase))
+            return Results.Conflict(new { detail = "Select OneKhusa Sandbox before simulating a payment." });
+
+        var detail = await orders.GetDetailAsync(id, ct);
+        var intent = detail.Intents.FirstOrDefault(i => i.Status == PaymentIntentStatus.Pending && !string.IsNullOrWhiteSpace(i.ProviderRef));
+        if (intent is null) return Results.Conflict(new { detail = "No pending OneKhusa payment with a timed account number was found." });
+
+        var result = await oneKhusa.SimulateAcceptRequestToPayAsync(intent.ProviderRef!, intent.Amount, ct);
+        var notification = new CollectionNotification($"onekhusa-sandbox:{result.TransactionReference}", intent.Reference,
+            CollectionEventKind.Succeeded, intent.Amount, result.Fee, intent.Currency, result.TransactionReference);
+        var outcome = await collections.HandleAsync(notification, null, ct);
+        return Results.Ok(new { simulated = true, outcome = outcome.ToString(), reference = intent.Reference });
+    }
 
     private static async Task<IResult> GetAudit(IAuditLog audit, CancellationToken ct)
     {

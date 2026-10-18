@@ -1,6 +1,9 @@
-using CourierEscrow.Application;
+using CourierEscrow.Application.Helpers;
+using CourierEscrow.Application.Interfaces;
 using CourierEscrow.Domain;
+using CourierEscrow.Domain.Models;
 using CourierEscrow.Domain.Ledger;
+using CourierEscrow.Application.Services.Support;
 
 namespace CourierEscrow.Tests.Fakes;
 
@@ -179,6 +182,7 @@ public sealed class MemoryRepos(MemoryDb db) :
     public void Add(ReconciliationRun run) => db.Runs.Add(run);
     public void Add(ReconciliationItem item) => db.RunItems.Add(item);
     public Task<IReadOnlyList<ReconciliationRun>> ListRunsAsync(int take, CancellationToken ct) => L(db.Runs.Rows.OrderByDescending(r => r.RanAt).Take(take));
+    public Task<bool> HasRunForDateAsync(DateOnly day, CancellationToken ct) => Task.FromResult(db.Runs.Rows.Any(r => r.ForDate == day));
     public Task<IReadOnlyList<ReconciliationItem>> ListItemsAsync(Guid runId, CancellationToken ct) => L(db.RunItems.Rows.Where(i => i.RunId == runId));
 
     // ledger

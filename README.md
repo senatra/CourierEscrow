@@ -13,17 +13,17 @@ OneKhusa for collections and payouts, a courier web app (PWA) and an ops console
 
 | Design section | Where it lives |
 |---|---|
-| Order state machine (12 states, proof guards, optimistic concurrency, `client_event_id`) | `Domain/Escrow.cs`, `Domain/OrderEvent.cs` |
+| Order state machine (12 states, proof guards, optimistic concurrency, `client_event_id`) | `Domain/Models/Escrow.cs`, `Domain/Models/OrderEvent.cs` |
 | Double-entry, append-only ledger, posting rules per event | `Domain/Ledger/`, guards in `Infrastructure/Persistence/LedgerGuards.cs` |
-| OneKhusa collections, webhooks (HMAC-SHA512), payouts, idempotency keys, token cache | `Infrastructure/OneKhusa/` |
-| Webhook inbox (raw payload stored first, deduplicated, retried by a worker) | `Application/BackgroundServices.cs` (`WebhookService`) |
+| OneKhusa collections, HMAC-verified webhooks, payouts, idempotency keys, token cache | `Infrastructure/OneKhusa/` |
+| Webhook inbox (raw payload stored first, deduplicated, retried by a worker) | `Application/Services/WebhookService.cs` |
 | Collections: intent, request to pay, poll fallback, expiry | `Application/CollectionService.cs` |
 | Payouts: queued → submitted → confirmed, retries, `NEEDS_REVIEW`, `SETTLED` only when all confirmed | `Application/PayoutService.cs` |
 | OTP (HMAC, 24 h, 5 attempts, lockout to ops) and proof of handoff (photos hashed by the server, GPS, seal) | `Domain/Handoff.cs`, `Application/HandoffService.cs` |
 | Disputes with a 48 h window and a written, reviewer-only decision | `Application/DisputeService.cs` |
-| SMS notifications from a queue, OTP encrypted at rest and blanked after sending | `Application/SmsTemplates.cs`, `NotificationDispatcher` |
+| SMS notifications from a queue, OTP encrypted at rest and blanked after sending | `Application/Helpers/SmsTemplates.cs`, `Application/Services/NotificationDispatcher.cs` |
 | Daily reconciliation and the alert strip | `ReconciliationService`, `AlertsService` |
-| Roles, courier phone + PIN with device binding and lockout, audit trail | `Api/Auth.cs`, `Application/CourierService.cs` |
+| Roles, courier phone + PIN with device binding and lockout, audit trail | `Api/Auth/Auth.cs`, `Application/Services/CourierService.cs` |
 | Transactional outbox → RabbitMQ (optional) | `Infrastructure/Messaging/` |
 | Courier web app (PWA, offline queue) | `Api/wwwroot/courier/` served at `/courier-app/` |
 | Admin portal | `CourierEscrow.Web` (Blazor Server) |
@@ -129,17 +129,39 @@ Amounts are `long` tambala (1/100 kwacha), never floating point. The books balan
 
 ## OneKhusa
 
-Set `Payments:Provider=OneKhusa` and supply (environment variables or a secret store):
+For local development, put OneKhusa settings in `src/CourierEscrow.Api/appsettings.Local.json`; `.gitignore` excludes this file. It overrides `appsettings.json` and must never be committed. Finance and ops admins can then switch between Simulation and OneKhusa from **Payment provider** in the console. `Payments:Provider` chooses the initial provider when the API starts; the console selection lasts until the API restarts.
+
+Use this shape and replace the placeholders with the values from your OneKhusa sandbox. The webhook secret is optional for the temporary webhook-free flow, but callbacks will be rejected until it is supplied. Set the Airtel and TNM payout connector IDs from `GET /admin/provider/connectors` before testing payouts.
+
+```json
+{
+  "OneKhusa": {
+    "Environment": "Sandbox",
+    "ApiKey": "...",
+    "ApiSecret": "...",
+    "OrganisationId": "...",
+    "MerchantAccountNumber": 12345678,
+    "CapturedBy": "you@company.com",
+    "WebhookSecret": "",
+    "SandboxConnectorId": 112400,
+    "CurrencyCode": "MWK",
+    "AirtelConnectorId": 0,
+    "TnmConnectorId": 0
+  }
+}
+```
 
 ```
 OneKhusa__Environment=Sandbox            OneKhusa__ApiKey=...            OneKhusa__ApiSecret=...
 OneKhusa__OrganisationId=...             OneKhusa__MerchantAccountNumber=...
-OneKhusa__CapturedBy=you@company.com     OneKhusa__WebhookSecret=...
+OneKhusa__CapturedBy=you@company.com     OneKhusa__WebhookSecret=... (optional until webhooks are enabled)
 OneKhusa__AirtelConnectorId=...          OneKhusa__TnmConnectorId=...
 ```
 
 Find the connector ids with `GET /admin/provider/connectors` (finance role). Point OneKhusa's webhooks at `POST /webhooks/onekhusa`;
-the API verifies `X-OneKhusa-Webhook-Signature` (HMAC-SHA512 over the raw body) and reads the event from `X-OneKhusa-Webhook-Event`.
+the API verifies `X-OneKhusa-Webhook-Signature` locally using HMAC-SHA512 and the webhook secret; the event comes from `X-OneKhusa-Webhook-Event`.
+
+With `Environment` set to `Sandbox`, request payment for an order and use **Simulate OneKhusa payment** on its detail page. The app calls OneKhusa's fake Request-To-Pay transaction endpoint and applies its successful response locally, so a webhook secret is not needed for this test. Use **Add sandbox funds** on the Payment provider page before testing payouts. Payouts use the normal single-disbursement API with OneKhusa's documented fake beneficiary account; the Airtel and TNM payout connector IDs must be configured. None of these fake-data actions are allowed in Live mode.
 
 **Important:** a OneKhusa request-to-pay returns a *timed account number* the buyer pays into (bank or mobile money), not a push prompt on the buyer's phone. The SMS tells the buyer the account number, amount and deadline.
 

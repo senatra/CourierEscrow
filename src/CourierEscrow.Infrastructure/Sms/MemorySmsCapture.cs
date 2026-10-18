@@ -1,5 +1,5 @@
 using System.Collections.Concurrent;
-using CourierEscrow.Application;
+using CourierEscrow.Application.Interfaces;
 
 namespace CourierEscrow.Infrastructure.Sms;
 

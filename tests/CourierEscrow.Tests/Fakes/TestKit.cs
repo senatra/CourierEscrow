@@ -1,7 +1,10 @@
 using System.Text.RegularExpressions;
-using CourierEscrow.Application;
+using CourierEscrow.Application.Helpers;
+using CourierEscrow.Application.Interfaces;
 using CourierEscrow.Application.Services;
+using CourierEscrow.Application.Services.Support;
 using CourierEscrow.Domain;
+using CourierEscrow.Domain.Models;
 using CourierEscrow.Infrastructure.Payments;
 using Microsoft.Extensions.Options;
 
@@ -56,6 +59,7 @@ public sealed class FakeProvider(TimeProvider clock) : IPaymentProvider
     private readonly MockPaymentProvider _mock = new(Options.Create(new MockProviderOptions()), clock);
 
     public string Name => "fake";
+    public bool SupportsPayoutInquiry { get; set; } = true;
     public string SignatureHeader => "X-Signature";
     public string EventHeader => "X-Event";
 
@@ -87,7 +91,7 @@ public sealed class FakeProvider(TimeProvider clock) : IPaymentProvider
     public Task<PayoutStatusResult> GetPayoutStatusAsync(string reference, string? providerRef, DateOnly submittedOn, CancellationToken ct) => Task.FromResult(PayoutStatus);
     public Task<IReadOnlyList<ProviderPayoutRecord>> ListPayoutsAsync(DateOnly day, CancellationToken ct) => Task.FromResult<IReadOnlyList<ProviderPayoutRecord>>(Remote.ToList());
     public Task<long?> GetBalanceAsync(string currency, CancellationToken ct) => Task.FromResult(Balance);
-    public bool VerifyWebhook(byte[] rawBody, string? signature) => _mock.VerifyWebhook(rawBody, signature);
+    public Task<bool> VerifyWebhookAsync(byte[] rawBody, string? eventCode, string? signature, CancellationToken ct) => _mock.VerifyWebhookAsync(rawBody, eventCode, signature, ct);
     public ProviderNotification? ParseWebhook(string? eventCode, string body) => _mock.ParseWebhook(eventCode, body);
     public string Sign(string body) => _mock.Sign(body);
 }
@@ -146,7 +150,7 @@ public sealed class TestEnv
         Disputes = new DisputeService(Repos, Repos, Repos, Repos, Payouts, Repos, commit, notifier, Clock);
         Webhooks = new WebhookService(Provider, Repos, Collections, Payouts, Db, Clock);
         Dispatcher = new NotificationDispatcher(Repos, Sms, Protector, Db, Clock, new NullSmsCapture());
-        Recon = new ReconciliationService(Provider, Repos, Repos, Repos, Repos, Db, Clock, Options);
+        Recon = new ReconciliationService(Provider, Repos, Repos, Repos, Repos, Db, Clock, Options, Payouts);
         Alerts = new AlertsService(Repos, Repos, Repos, Repos, Repos, Repos, Repos, Clock, Options);
     }
 

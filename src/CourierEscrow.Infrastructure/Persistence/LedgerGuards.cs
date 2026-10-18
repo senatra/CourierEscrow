@@ -1,5 +1,7 @@
-using CourierEscrow.Application;
+using CourierEscrow.Application.Helpers;
+using CourierEscrow.Application.Services.Support;
 using CourierEscrow.Domain;
+using CourierEscrow.Domain.Models;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
@@ -102,15 +104,15 @@ public static class LedgerGuards
     }
 }
 
-/// <summary>Creates the schema and the append-only guards on startup when <c>Database:AutoInit</c> is true (development).</summary>
-public sealed class DatabaseInitializer(IServiceScopeFactory scopes, ILogger<DatabaseInitializer> log) : IHostedService
+/// <summary>Creates the database schema and append-only guards on startup when <c>Database:AutoInit</c> is true.</summary>
+public sealed class DatabaseInitializer(IServiceScopeFactory scopes, ILogger<DatabaseInitializer> log, IHostEnvironment environment) : IHostedService
 {
     public async Task StartAsync(CancellationToken ct)
     {
         using var scope = scopes.CreateScope();
         var db = scope.ServiceProvider.GetRequiredService<EscrowDbContext>();
         await LedgerGuards.InitializeAsync(db, ct);
-        if (!await db.Couriers.AnyAsync(ct))
+        if (environment.IsDevelopment() && !await db.Couriers.AnyAsync(ct))
         {
             db.Couriers.Add(CourierAccount.Create("Demo Courier", PhoneNumber.Normalize("0999123456"), MobileNetwork.Airtel.ToString(), PinHasher.Hash("1234"), DateTimeOffset.UtcNow));
             await db.SaveChangesAsync(ct);
@@ -152,7 +154,7 @@ public sealed class AdminBootstrapper(IServiceScopeFactory scopes, ILogger<Admin
         }
         catch (Exception ex) when (ex is not OperationCanceledException)
         {
-            log.LogError(ex, "Could not create the first administrator. Does the staff_users table exist? Run the statements in LedgerGuards.Upgrades, or set Database:AutoInit=true in development.");
+            log.LogError(ex, "Could not create the first administrator. Does the staff_users table exist? Run the statements in LedgerGuards.Upgrades, or enable Database:AutoInit.");
         }
     }
 

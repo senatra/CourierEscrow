@@ -4,9 +4,12 @@
 <PageTitle>Reconciliation · Nexa Escrow</PageTitle>
 <div class="page-head">
     <h1>Reconciliation</h1>
-    <div class="head-actions"><button class="btn primary" disabled="@busy" @onclick="RunNow">@(busy ? "Running…" : "Run for yesterday")</button></div>
+    <div class="head-actions">
+        <label class="reconciliation-date">Report date <InputDate @bind-Value="selectedDate" class="input" /></label>
+        <button class="btn primary" disabled="@busy" @onclick="RunNow">@(busy ? "Running…" : "Run reconciliation")</button>
+    </div>
 </div>
-<p class="lede muted">Compares the provider's payouts with ours, the ledger with the provider's balance, and every order's escrow against its state. It also runs by itself after 02:00 UTC.</p>
+<p class="lede muted">Compares provider payout transactions with our records, checks ledger and escrow balances, and flags exceptions. Confirmed payouts update the ledger; failures and reversals are sent for review. It also runs by itself after 02:00 UTC.</p>
 
 <Notice Message="@error" Kind="error" />
 <Notice Message="@info" Kind="info" />
@@ -57,6 +60,7 @@
     private List<ReconItem>? items;
     private string? selected, error, info;
     private bool busy;
+    private DateTime selectedDate = DateTime.UtcNow.Date.AddDays(-1);
 
     protected override Task OnInitializedAsync() => Load();
 
@@ -68,14 +72,26 @@
 
     private async Task Show(ReconRun r)
     {
-        try { selected = r.ForDate; items = await Api.GetReconItems(r.Id); }
+        try
+        {
+            selected = r.ForDate;
+            selectedDate = DateTime.Parse(r.ForDate, System.Globalization.CultureInfo.InvariantCulture).Date;
+            items = await Api.GetReconItems(r.Id);
+        }
         catch (Exception ex) { error = ex.Message; }
     }
 
     private async Task RunNow()
     {
         busy = true; error = null;
-        try { await Api.RunReconciliation(); info = "Reconciliation finished."; await Load(); if (runs is { Count: > 0 }) await Show(runs[0]); }
+        try
+        {
+            var date = DateOnly.FromDateTime(selectedDate);
+            await Api.RunReconciliation(date);
+            info = $"Reconciliation finished for {date:yyyy-MM-dd}.";
+            await Load();
+            if (runs is { Count: > 0 }) await Show(runs[0]);
+        }
         catch (Exception ex) { error = ex.Message; }
         finally { busy = false; }
     }

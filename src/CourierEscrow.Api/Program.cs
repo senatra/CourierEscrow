@@ -9,6 +9,7 @@ using Microsoft.AspNetCore.RateLimiting;
 
 var builder = WebApplication.CreateBuilder(args);
 builder.Configuration.AddJsonFile("appsettings.Local.json", optional: true, reloadOnChange: false);   // your own secrets; git-ignored
+builder.Configuration.AddEnvironmentVariables();
 
 builder.Services.AddEscrowInfrastructure(builder.Configuration);
 

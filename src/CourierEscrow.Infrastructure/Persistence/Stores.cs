@@ -1,10 +1,13 @@
-using System.Linq.Expressions;
-using System.Text.Json;
-using CourierEscrow.Application;
+using CourierEscrow.Application.Helpers;
+using CourierEscrow.Application.Interfaces;
+using CourierEscrow.Application.Services.Support;
 using CourierEscrow.Domain;
 using CourierEscrow.Domain.Ledger;
+using CourierEscrow.Domain.Models;
 using Microsoft.EntityFrameworkCore;
 using Npgsql;
+using System.Linq.Expressions;
+using System.Text.Json;
 
 namespace CourierEscrow.Infrastructure.Persistence;
 
@@ -174,6 +177,8 @@ public sealed class ReconciliationStore(EscrowDbContext db) : IReconciliationSto
     public void Add(ReconciliationItem item) => db.ReconciliationItems.Add(item);
     public async Task<IReadOnlyList<ReconciliationRun>> ListRunsAsync(int take, CancellationToken ct) =>
         await db.ReconciliationRuns.AsNoTracking().OrderByDescending(r => r.RanAt).Take(take).ToListAsync(ct);
+    public Task<bool> HasRunForDateAsync(DateOnly day, CancellationToken ct) =>
+        db.ReconciliationRuns.AnyAsync(r => r.ForDate == day, ct);
     public async Task<IReadOnlyList<ReconciliationItem>> ListItemsAsync(Guid runId, CancellationToken ct) =>
         await db.ReconciliationItems.AsNoTracking().Where(i => i.RunId == runId).ToListAsync(ct);
 }

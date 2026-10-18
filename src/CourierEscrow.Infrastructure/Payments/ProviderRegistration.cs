@@ -1,5 +1,7 @@
-using CourierEscrow.Application;
+using CourierEscrow.Application.Helpers;
+using CourierEscrow.Application.Interfaces;
 using CourierEscrow.Application.Services;
+using CourierEscrow.Application.Services.Support;
 using CourierEscrow.Infrastructure.OneKhusa;
 using CourierEscrow.Infrastructure.Security;
 using CourierEscrow.Infrastructure.Sms;
@@ -24,7 +26,7 @@ public static class ProviderRegistration
 
         var security = config.GetSection("Security").Get<SecurityOptions>() ?? new SecurityOptions();
         services.AddSingleton(security);
-        services.AddSingleton<IProtector, AesGcmProtector>();
+        services.AddSingleton<IProtector>(new AesGcmProtector(security));
 
         var storage = config.GetSection("Storage").Get<StorageOptions>() ?? new StorageOptions();
         services.AddSingleton(storage);
@@ -32,21 +34,19 @@ public static class ProviderRegistration
 
         services.Configure<MockProviderOptions>(config.GetSection("Mock"));
         var providerName = config.GetValue("Payments:Provider", "Mock")!;
-        if (providerName.Equals("OneKhusa", StringComparison.OrdinalIgnoreCase))
-        {
-            var ok = config.GetSection("OneKhusa").Get<OneKhusaOptions>() ?? new OneKhusaOptions();
-            ok.Validate();
-            services.AddSingleton(ok);
-            services.AddSingleton<OneKhusaTokenCache>();
-            services.AddHttpClient(OneKhusaProvider.HttpClientName, c => c.Timeout = TimeSpan.FromSeconds(30));
-            services.AddSingleton<OneKhusaProvider>();
-            services.AddSingleton<IPaymentProvider>(sp => sp.GetRequiredService<OneKhusaProvider>());
-        }
-        else
-        {
-            services.AddSingleton<MockPaymentProvider>();
-            services.AddSingleton<IPaymentProvider>(sp => sp.GetRequiredService<MockPaymentProvider>());
-        }
+        var oneKhusa = config.GetSection("OneKhusa").Get<OneKhusaOptions>() ?? new OneKhusaOptions();
+        services.AddSingleton(oneKhusa);
+        services.AddSingleton<OneKhusaTokenCache>();
+        services.AddHttpClient(OneKhusaProvider.HttpClientName, c => c.Timeout = TimeSpan.FromSeconds(30));
+        services.AddSingleton<OneKhusaProvider>();
+        services.AddSingleton<MockPaymentProvider>();
+        services.AddSingleton(sp => new SwitchablePaymentProvider(
+            sp.GetRequiredService<MockPaymentProvider>(),
+            sp.GetRequiredService<OneKhusaProvider>(),
+            sp.GetRequiredService<OneKhusaOptions>(),
+            providerName));
+        services.AddSingleton<IPaymentProvider>(sp => sp.GetRequiredService<SwitchablePaymentProvider>());
+        services.AddSingleton<IPaymentProviderResolver>(sp => sp.GetRequiredService<SwitchablePaymentProvider>());
 
         var sms = config.GetSection("Sms").Get<SmsOptions>() ?? new SmsOptions();
         services.AddSingleton(sms);

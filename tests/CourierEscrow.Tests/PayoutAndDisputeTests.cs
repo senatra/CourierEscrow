@@ -1,6 +1,7 @@
-using CourierEscrow.Application;
+using CourierEscrow.Application.Interfaces;
 using CourierEscrow.Application.Services;
 using CourierEscrow.Domain;
+using CourierEscrow.Domain.Models;
 using CourierEscrow.Domain.Ledger;
 using CourierEscrow.Tests.Fakes;
 

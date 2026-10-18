@@ -1,0 +1,134 @@
+@page "/payment-provider"
+@attribute [Authorize(Roles = "ops_admin,finance")]
+@inject EscrowApiClient Api
+
+<PageTitle>Payment provider · Nexa Escrow</PageTitle>
+<div class="page-head">
+    <h1>Payment provider</h1>
+    <div class="head-actions"><button class="btn" disabled="@busy" @onclick="Load">Refresh</button></div>
+</div>
+<p class="lede muted">Choose whether collections and payouts use the simulation or OneKhusa. This selection applies to the API process and returns to the configured default after restart.</p>
+
+<Notice Message="@error" Kind="error" />
+<Notice Message="@info" Kind="info" />
+
+@if (selection is null && error is null)
+{
+    <p class="muted">Loading payment provider settings…</p>
+}
+else if (selection is not null)
+{
+    <div class="two-col">
+        @foreach (var provider in selection.Providers)
+        {
+            <section class="card">
+                <div class="page-head">
+                    <h2>@provider.Label</h2>
+                    @if (selection.Selected.Equals(provider.Name, StringComparison.OrdinalIgnoreCase))
+                    {
+                        <span class="badge active">Active</span>
+                    }
+                </div>
+                @if (provider.Name == "OneKhusa")
+                {
+                    <p class="muted">Environment: @(provider.Environment ?? "Sandbox")</p>
+                    @if (!provider.Available)
+                    {
+                        <div class="notice info">Configure these values before switching: @string.Join(", ", provider.MissingConfiguration)</div>
+                    }
+                    else
+                    {
+                        <p class="muted">OneKhusa credentials are present. Its API environment comes from configuration.</p>
+                        @if (!provider.WebhooksReady)
+                        {
+                            <div class="notice info">Webhook signatures are checked against a separate secret for each selected event. Configure the missing secrets: @string.Join(", ", provider.MissingWebhookSecrets ?? []). Sandbox payment simulation updates the order directly.</div>
+                        }
+                        <div class="notice info">
+                            <strong>Webhook callback URL:</strong> <code>@provider.WebhookCallbackUrl</code><br />
+                            Subscribe to Successful, Failed, and Reversed Disbursement (Payout), plus Successful and Reversed Request To Pay.
+                        </div>
+                        @if (provider.Environment?.Equals("Sandbox", StringComparison.OrdinalIgnoreCase) == true && !provider.PayoutConnectorsConfigured)
+                        {
+                            <div class="notice info">Configure both AirtelConnectorId and TnmConnectorId from the connector list before testing payouts.</div>
+                        }
+                    }
+                }
+                else
+                {
+                    <p class="muted">Uses the local mock provider and development webhook simulation.</p>
+                }
+                <button class="btn @(selection.Selected.Equals(provider.Name, StringComparison.OrdinalIgnoreCase) ? "" : "primary")"
+                        disabled="@busy || !provider.Available || selection.Selected.Equals(provider.Name, StringComparison.OrdinalIgnoreCase)"
+                        @onclick="() => Select(provider.Name)">
+                    @(selection.Selected.Equals(provider.Name, StringComparison.OrdinalIgnoreCase) ? "Currently active" : $"Use {provider.Label}")
+                </button>
+            </section>
+        }
+    </div>
+
+    @if (selection.Selected.Equals("onekhusa", StringComparison.OrdinalIgnoreCase) && oneKhusaSandbox)
+    {
+        <section class="card" style="margin-top:1rem">
+            <h2>Sandbox merchant funds</h2>
+            <p class="muted">Add test funds to the OneKhusa sandbox merchant balance before testing payouts. This calls OneKhusa’s sandbox top-up endpoint.</p>
+            <p class="muted">Sandbox payouts are sent to OneKhusa’s documented active test wallet account, not to the real seller or courier number.</p>
+            <label>Amount (@(selection.Providers.First(p => p.Name.Equals("onekhusa", StringComparison.OrdinalIgnoreCase)).CurrencyCode ?? "MWK"))
+                <input class="input" type="number" min="0.01" step="0.01" @bind="topUpAmount" />
+            </label>
+            @if (!selection.Providers.First(p => p.Name.Equals("onekhusa", StringComparison.OrdinalIgnoreCase)).SandboxConnectorConfigured)
+            {
+                <div class="notice info">Configure OneKhusa:SandboxConnectorId before using sandbox fake-data actions.</div>
+            }
+            <button class="btn primary" disabled="@busy || topUpAmount <= 0 || !selection.Providers.First(p => p.Name.Equals("onekhusa", StringComparison.OrdinalIgnoreCase)).SandboxConnectorConfigured" @onclick="TopUp">Add sandbox funds</button>
+        </section>
+    }
+}
+
+@code {
+    private PaymentProviderSelection? selection;
+    private string? error;
+    private string? info;
+    private bool busy;
+    private decimal topUpAmount = 10000m;
+    private bool oneKhusaSandbox => selection?.Providers.Any(p => p.Name.Equals("onekhusa", StringComparison.OrdinalIgnoreCase)
+        && p.Environment?.Equals("Sandbox", StringComparison.OrdinalIgnoreCase) == true) == true;
+
+    protected override Task OnInitializedAsync() => Load();
+
+    private async Task Load()
+    {
+        busy = true;
+        error = null;
+        try { selection = await Api.GetPaymentProvider(); }
+        catch (Exception ex) { error = ex.Message; }
+        finally { busy = false; }
+    }
+
+    private async Task Select(string name)
+    {
+        busy = true;
+        error = null;
+        info = null;
+        try
+        {
+            selection = await Api.SetPaymentProvider(name);
+            info = $"Payment provider changed to {selection.Selected}.";
+        }
+        catch (Exception ex) { error = ex.Message; }
+        finally { busy = false; }
+    }
+
+    private async Task TopUp()
+    {
+        busy = true;
+        error = null;
+        info = null;
+        try
+        {
+            await Api.TopUpOneKhusaSandbox(topUpAmount);
+            info = $"Added {topUpAmount:N2} in sandbox funds. Check the OneKhusa sandbox balance before submitting payouts.";
+        }
+        catch (Exception ex) { error = ex.Message; }
+        finally { busy = false; }
+    }
+}

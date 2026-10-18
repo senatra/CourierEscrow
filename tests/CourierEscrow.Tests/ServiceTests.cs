@@ -1,8 +1,10 @@
 using System.Security.Cryptography;
 using System.Text;
-using CourierEscrow.Application;
+using CourierEscrow.Application.Helpers;
 using CourierEscrow.Application.Services;
+using CourierEscrow.Application.Services.Support;
 using CourierEscrow.Domain;
+using CourierEscrow.Domain.Models;
 using CourierEscrow.Domain.Ledger;
 using CourierEscrow.Infrastructure.Security;
 using CourierEscrow.Infrastructure.Storage;
@@ -184,6 +186,8 @@ public class SecurityTests
         Assert.ThrowsAny<Exception>(() => protector.Unprotect(Convert.ToBase64String(bytes)));
         Assert.Throws<InvalidOperationException>(() => new AesGcmProtector(new SecurityOptions { DataKey = Convert.ToBase64String(new byte[16]) }));
         Assert.Throws<InvalidOperationException>(() => new AesGcmProtector(new SecurityOptions { DataKey = "not base64!" }));
+        var missingKey = Assert.Throws<InvalidOperationException>(() => new AesGcmProtector(new SecurityOptions()));
+        Assert.Contains("Security__DataKey", missingKey.Message, StringComparison.Ordinal);
     }
 
     [Fact]
