@@ -56,7 +56,7 @@ app.MapAuthEndpoints();
 app.MapUserEndpoints();
 app.MapCourierEndpoints();
 app.MapAdminEndpoints();
-app.MapPublicEndpoints(app.Environment.IsDevelopment() || app.Configuration.GetValue("Dev:Endpoints", false));
+app.MapPublicEndpoints(app.Configuration.GetValue("Dev:Endpoints", true));
 
 app.Run();
 

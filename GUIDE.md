@@ -351,6 +351,12 @@ Set these in `appsettings.*.json`, a git-ignored `appsettings.Local.json`, or en
 
 Development connects to `courier_escrow_dev`; Production must use a separate database, e.g. `courier_escrow_prod`. Set the full production PostgreSQL connection string as the `ConnectionStrings__Escrow` secret. On first start, Production creates the database and schema when the configured PostgreSQL role has permission to create databases and tables. It does not seed the demo courier.
 
+### IIS database initialization
+
+The published API reads `appsettings.Production.json` only when `ASPNETCORE_ENVIRONMENT=Production`; that file enables `Database:AutoInit` and disables development-only endpoints. `appsettings.Local.json` is optional and git-ignored; it may be used locally but is explicitly excluded from publish output so a local file cannot overwrite IIS configuration. Configure production secrets such as `ConnectionStrings__Escrow`, `Security__DataKey`, `Auth__TokenSecret`, `Escrow__OtpSecret`, and `Storage__SigningSecret` for IIS (for example, through IIS Configuration Editor's `system.webServer/aspNetCore/environmentVariables` or the hosting service's protected environment-variable mechanism), then recycle the app pool. Keep connection-string secrets out of source control and restrict access to any IIS configuration that stores them.
+
+The PostgreSQL role in that connection string needs `CREATEDB` to let `EnsureCreated` create a missing database, and permission to create objects in the target database. If the database already exists, it can be created by a DBA first and the application role granted ownership or schema/table creation privileges; do not point Production at the Development database. Check the IIS stdout log or Windows Application log for `Escrow database initialization failed` and the underlying PostgreSQL exception. `EnsureCreated` does not repair an existing partially-created schema, so preserve the data and use a proper migration rather than dropping the database.
+
 The API listens on port `5080` in Development and `5081` in Production. The Production console defaults to `http://localhost:5081` when co-hosted with the API; if the API is on another host or has a public DNS name, set `Api__BaseUrl` in the console and `Storage__PublicBaseUrl` in the API to that reachable API URL. Allow inbound TCP `5081` in the host firewall or reverse proxy.
 
 ### Switching between Simulation and OneKhusa

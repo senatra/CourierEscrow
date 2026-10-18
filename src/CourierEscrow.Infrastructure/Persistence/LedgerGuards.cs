@@ -111,7 +111,17 @@ public sealed class DatabaseInitializer(IServiceScopeFactory scopes, ILogger<Dat
     {
         using var scope = scopes.CreateScope();
         var db = scope.ServiceProvider.GetRequiredService<EscrowDbContext>();
-        await LedgerGuards.InitializeAsync(db, ct);
+        log.LogInformation("Initializing escrow database schema for {Environment}.", environment.EnvironmentName);
+        try
+        {
+            await LedgerGuards.InitializeAsync(db, ct);
+        }
+        catch (Exception ex) when (ex is not OperationCanceledException)
+        {
+            log.LogCritical(ex, "Escrow database initialization failed. Verify ConnectionStrings:Escrow, PostgreSQL availability, and database/schema privileges.");
+            throw;
+        }
+
         if (environment.IsDevelopment() && !await db.Couriers.AnyAsync(ct))
         {
             db.Couriers.Add(CourierAccount.Create("Demo Courier", PhoneNumber.Normalize("0999123456"), MobileNetwork.Airtel.ToString(), PinHasher.Hash("1234"), DateTimeOffset.UtcNow));

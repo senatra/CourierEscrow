@@ -157,7 +157,8 @@ public sealed class EscrowApiClient(HttpClient http, AuthenticationStateProvider
             var slot = await Post<UploadSlot>("/admin/uploads/presign", new { contentType = "image/jpeg" });
             using var content = new ByteArrayContent(bytes);
             content.Headers.ContentType = new("image/jpeg");
-            using var res = await http.PutAsync(slot.Url, content);
+            var uploadPath = new Uri(slot.Url, UriKind.Absolute).PathAndQuery;
+            using var res = await http.PutAsync(uploadPath, content);
             if (!res.IsSuccessStatusCode) throw await Failure(res, false);
             ids.Add(slot.UploadId);
         }
