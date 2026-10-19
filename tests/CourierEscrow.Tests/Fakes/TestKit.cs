@@ -66,7 +66,9 @@ public sealed class FakeProvider(TimeProvider clock) : IPaymentProvider
     public List<CollectionRequest> Collections { get; } = [];
     public List<PayoutInstruction> PayoutCalls { get; } = [];
     public Queue<PayoutSubmission> PayoutResults { get; } = new();
+    public Queue<ProviderException> CollectionFailures { get; } = new();
     public bool CollectionFails { get; set; }
+    public ProviderException? CollectionFailure { get; set; }
     public string? AccountNumber { get; set; } = "7788990011";
     public CollectionStatusResult CollectionStatus { get; set; } = new(RemoteStatus.Unknown, null, 0);
     public PayoutStatusResult PayoutStatus { get; set; } = new(RemoteStatus.Unknown, null, 0, null);
@@ -76,7 +78,8 @@ public sealed class FakeProvider(TimeProvider clock) : IPaymentProvider
     public Task<CollectionRequested> RequestCollectionAsync(CollectionRequest request, CancellationToken ct)
     {
         Collections.Add(request);
-        if (CollectionFails) throw new ProviderException("provider unreachable");
+        if (CollectionFailures.Count > 0) throw CollectionFailures.Dequeue();
+        if (CollectionFails) throw CollectionFailure ?? new ProviderException("provider unreachable");
         return Task.FromResult(new CollectionRequested(AccountNumber, AccountNumber, clock.GetUtcNow().AddMinutes(15)));
     }
 
@@ -143,7 +146,7 @@ public sealed class TestEnv
         Payouts = new PayoutService(Repos, Repos, Repos, Repos, Repos, Provider, Repos, commit, Clock);
         Orders = new OrderService(Repos, Repos, Repos, Repos, Repos, Repos, Repos, Repos, Repos, Repos, Repos, Db, Repos, Payouts, commit, notifier, Clock, Options);
         Couriers = new CourierService(Repos, Repos, Repos, Repos, Db, Tokens, Clock);
-        Collections = new CollectionService(Repos, Repos, Repos, Repos, Repos, Provider, commit, notifier, Clock, Options);
+        Collections = new CollectionService(Repos, Repos, Repos, Repos, Repos, Repos, Provider, commit, notifier, Clock, Options);
         Handoff = new HandoffService(Repos, Repos, Repos, Repos, Repos, Repos, Repos, Storage, Repos, Payouts, commit, notifier, Clock, Options);
         Approval = new BuyerApprovalService(Orders, Collections);
         Sim = new DevSimulationService(Repos, Repos, Repos, Repos, commit, notifier, Handoff, Payouts, Clock, Options);

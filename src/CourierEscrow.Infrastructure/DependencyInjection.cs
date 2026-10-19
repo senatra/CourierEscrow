@@ -29,6 +29,7 @@ public static class DependencyInjection
         services.AddScoped<ICourierRepository, CourierRepository>();
         services.AddScoped<IStaffUserRepository, StaffUserRepository>();
         services.AddScoped<IPaymentIntentRepository, PaymentIntentRepository>();
+        services.AddScoped<IPaymentAttemptRepository, PaymentAttemptRepository>();
         services.AddScoped<IPayoutRepository, PayoutRepository>();
         services.AddScoped<IOtpRepository, OtpRepository>();
         services.AddScoped<IProofRepository, ProofRepository>();

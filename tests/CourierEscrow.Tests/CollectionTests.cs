@@ -28,6 +28,11 @@ public class CollectionTests
         Assert.Equal("265888111222", call.BuyerPhone);
         var intent = env.Db.Intents.Rows.Single();
         Assert.Equal(PaymentIntentStatus.Pending, intent.Status);
+        var attempt = Assert.Single(env.Db.PaymentAttempts.Rows);
+        Assert.Equal(PaymentAttemptOutcome.Succeeded, attempt.Outcome);
+        Assert.Equal(intent.Id, attempt.PaymentIntentId);
+        Assert.Equal(intent.Reference, attempt.IdempotencyKey);
+        Assert.NotNull(attempt.FinishedAt);
         var sms = env.Db.Notifications.Rows.Last(n => n.Template == "payment_instructions");
         Assert.Contains("K308,000", sms.Body);
         Assert.Contains("7788990011", sms.Body);
@@ -64,6 +69,39 @@ public class CollectionTests
         Assert.Equal(reference, env.Provider.Collections[1].Reference);
         Assert.Equal(1, env.Db.Intents.Rows.Count);
         Assert.Equal(PaymentIntentStatus.Pending, env.Db.Intents.Rows.Single().Status);
+        var attempts = env.Db.PaymentAttempts.Rows.OrderBy(a => a.StartedAt).ToArray();
+        Assert.Equal(2, attempts.Length);
+        Assert.Equal(PaymentAttemptOutcome.Failed, attempts[0].Outcome);
+        Assert.Equal("provider unreachable", attempts[0].FailureMessage);
+        Assert.Equal(PaymentAttemptOutcome.Succeeded, attempts[1].Outcome);
+        Assert.All(attempts, attempt => Assert.Equal(reference, attempt.IdempotencyKey));
+    }
+
+    [Fact]
+    public async Task An_idempotency_payload_conflict_retries_once_with_a_new_key_and_saves_both_attempts()
+    {
+        var env = await TestEnv.NewAsync();
+        var e = await env.CreateOrderAsync();
+        await env.ConfirmProductAsync(e);
+        var fingerprint = new string('A', 64);
+        env.Provider.CollectionFailures.Enqueue(new ProviderException(
+            "The same idempotency key was used with a different request payload.", false,
+            statusCode: 409, requestFingerprint: fingerprint, idempotencyConflict: true));
+
+        await env.Collections.StartAsync(e.Id, "staff:ops");
+
+        var attempts = env.Db.PaymentAttempts.Rows.OrderBy(attempt => attempt.StartedAt).ToArray();
+        Assert.Equal(2, attempts.Length);
+        Assert.Equal(PaymentAttemptOutcome.Failed, attempts[0].Outcome);
+        Assert.Equal(409, attempts[0].ProviderStatusCode);
+        Assert.Equal(fingerprint, attempts[0].RequestFingerprint);
+        Assert.False(attempts[0].TransientFailure);
+        Assert.Contains("different request payload", attempts[0].FailureMessage);
+        Assert.Equal(PaymentAttemptOutcome.Succeeded, attempts[1].Outcome);
+        Assert.NotEqual(attempts[0].IdempotencyKey, attempts[1].IdempotencyKey);
+        Assert.StartsWith("ce-", attempts[1].IdempotencyKey);
+        Assert.Equal(attempts[0].IdempotencyKey, env.Provider.Collections[0].IdempotencyKey);
+        Assert.Equal(attempts[1].IdempotencyKey, env.Provider.Collections[1].IdempotencyKey);
     }
 
     [Fact]

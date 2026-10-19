@@ -82,6 +82,13 @@ public sealed class PaymentIntentRepository(EscrowDbContext db) : IPaymentIntent
         await db.PaymentIntents.Where(i => i.Status == PaymentIntentStatus.Initiated || i.Status == PaymentIntentStatus.Pending).OrderBy(i => i.CreatedAt).Take(take).ToListAsync(ct);
 }
 
+public sealed class PaymentAttemptRepository(EscrowDbContext db) : IPaymentAttemptRepository
+{
+    public void Add(PaymentAttempt attempt) => db.PaymentAttempts.Add(attempt);
+    public async Task<IReadOnlyList<PaymentAttempt>> ListForIntentAsync(Guid paymentIntentId, CancellationToken ct) =>
+        await db.PaymentAttempts.AsNoTracking().Where(a => a.PaymentIntentId == paymentIntentId).OrderBy(a => a.StartedAt).ToListAsync(ct);
+}
+
 public sealed class PayoutRepository(EscrowDbContext db) : IPayoutRepository
 {
     public void Add(Payout payout) => db.Payouts.Add(payout);

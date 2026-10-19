@@ -38,6 +38,7 @@ public sealed class MemoryDb : IUnitOfWork, INumberSequence
     public Table<StaffUser> Staff { get; } = new Table<StaffUser>("staff_users").Unique("username", u => u.Username);
     public Table<CourierAccount> Couriers { get; } = new Table<CourierAccount>("couriers").Unique("phone", c => c.Phone);
     public Table<PaymentIntent> Intents { get; } = new Table<PaymentIntent>("intents").Unique("ref", i => i.Reference);
+    public Table<PaymentAttempt> PaymentAttempts { get; } = new("payment_attempts");
     public Table<Payout> Payouts { get; } = new Table<Payout>("payouts").Unique("ref", p => p.Reference);
     public Table<Otp> Otps { get; } = new Table<Otp>("otps").Unique("escrow", o => o.EscrowId.ToString());
     public Table<Proof> Proofs { get; } = new("proofs");
@@ -65,7 +66,7 @@ public sealed class MemoryDb : IUnitOfWork, INumberSequence
     public MemoryDb()
     {
         void Reg<T>(Table<T> t) { _checks.Add(t.Check); _commits.Add(t.Commit); _discards.Add(t.Discard); }
-        Reg(Escrows); Reg(Parties); Reg(Staff); Reg(Couriers); Reg(Intents); Reg(Payouts); Reg(Otps); Reg(Proofs); Reg(Uploads); Reg(Disputes);
+        Reg(Escrows); Reg(Parties); Reg(Staff); Reg(Couriers); Reg(Intents); Reg(PaymentAttempts); Reg(Payouts); Reg(Otps); Reg(Proofs); Reg(Uploads); Reg(Disputes);
         Reg(OrderEvents); Reg(Inbox); Reg(Notifications); Reg(Audit); Reg(Runs); Reg(RunItems); Reg(Ledger); Reg(Outbox);
     }
 
@@ -91,7 +92,7 @@ public sealed class MemoryDb : IUnitOfWork, INumberSequence
 }
 
 public sealed class MemoryRepos(MemoryDb db) :
-    IEscrowRepository, IPartyRepository, ICourierRepository, IStaffUserRepository, IPaymentIntentRepository, IPayoutRepository, IOtpRepository,
+    IEscrowRepository, IPartyRepository, ICourierRepository, IStaffUserRepository, IPaymentIntentRepository, IPaymentAttemptRepository, IPayoutRepository, IOtpRepository,
     IProofRepository, IUploadRepository, IDisputeRepository, IOrderEventStore, IWebhookInbox, INotificationStore, IAuditLog,
     IReconciliationStore, ILedgerStore, IOutbox
 {
@@ -135,6 +136,10 @@ public sealed class MemoryRepos(MemoryDb db) :
     public Task<PaymentIntent?> GetByReferenceAsync(string reference, CancellationToken ct) => R(db.Intents.Rows.FirstOrDefault(i => i.Reference == reference));
     Task<IReadOnlyList<PaymentIntent>> IPaymentIntentRepository.ListForEscrowAsync(Guid escrowId, CancellationToken ct) => L(db.Intents.Rows.Where(i => i.EscrowId == escrowId));
     public Task<IReadOnlyList<PaymentIntent>> ListOpenAsync(int take, CancellationToken ct) => L(db.Intents.Rows.Where(i => i.IsOpen).OrderBy(i => i.CreatedAt).Take(take));
+
+    // payment attempts
+    public void Add(PaymentAttempt attempt) => db.PaymentAttempts.Add(attempt);
+    public Task<IReadOnlyList<PaymentAttempt>> ListForIntentAsync(Guid paymentIntentId, CancellationToken ct) => L(db.PaymentAttempts.Rows.Where(a => a.PaymentIntentId == paymentIntentId).OrderBy(a => a.StartedAt));
 
     // payouts
     public void Add(Payout payout) => db.Payouts.Add(payout);

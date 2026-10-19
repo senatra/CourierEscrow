@@ -8,3 +8,5 @@ TestResults/
 appsettings.Local.json
 data/
 .env
+**/App_Data/logs/
+**/logs/

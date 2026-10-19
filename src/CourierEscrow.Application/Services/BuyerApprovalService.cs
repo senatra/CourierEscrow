@@ -1,5 +1,6 @@
 using CourierEscrow.Application.Services.Support;
 using CourierEscrow.Domain.Models;
+using System.Text.Json.Serialization;
 
 namespace CourierEscrow.Application.Services;
 
@@ -10,7 +11,7 @@ namespace CourierEscrow.Application.Services;
 /// </summary>
 public sealed record ApprovalResult(
     bool AlreadyConfirmed, string State, bool PaymentReady, string? Reference, string? AccountNumber,
-    DateTimeOffset? ExpiresAt, string? Message);
+    DateTimeOffset? ExpiresAt, string? Message, [property: JsonIgnore] string? Diagnostic = null);
 
 /// <summary>
 /// The buyer approves the item photos, and only then is the payment requested (never before).
@@ -39,7 +40,8 @@ public sealed class BuyerApprovalService(OrderService orders, CollectionService 
             return new(result.AlreadyConfirmed, EscrowState.PaymentPending.ToString(), false, escrow.PaymentReference, null, null,
                 ex.Transient
                     ? "The payment provider is not answering right now. Your approval is saved. Tap the button to try again."
-                    : "The payment provider could not set up your payment. Our team has been told. You can try again shortly.");
+                    : "The payment provider could not set up your payment. Our team has been told. You can try again shortly.",
+                ex.Message);
         }
     }
 }

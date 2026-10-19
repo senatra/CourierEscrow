@@ -4,6 +4,7 @@
 const { JSDOM } = require('jsdom');
 const fs = require('fs');
 const html = fs.readFileSync(require('path').join(__dirname, '..', '..', 'src', 'CourierEscrow.Api', 'wwwroot', 'track', 'index.html'), 'utf8');
+const simulationHtml = fs.readFileSync(require('path').join(__dirname, '..', '..', 'src', 'CourierEscrow.Api', 'wwwroot', 'track', 'simulate-payment.html'), 'utf8');
 
 function makeServer(opts = {}) {
   const s = { state: 'Created', confirmed: false, declined: false, account: null, providerDown: !!opts.providerDown, calls: [] };
@@ -18,7 +19,7 @@ function makeServer(opts = {}) {
   const view = () => ({ orderNumber: 'NX-1001', itemDescription: 'Samsung A15', total: 30800000, currency: 'MWK', state: s.state, sealId: s.state === 'Created' || s.state === 'PaymentPending' || s.state === 'Funded' ? null : 'SEAL-AB12',
     courierName: 'Mphatso Banda', pickedUpAt: null, steps: steps(), productConfirmed: s.confirmed, canConfirmProduct: s.state === 'Created' && !s.confirmed, canDeclineProduct: s.state === 'Created' && !s.confirmed,
     photos: [1,2,3].map(i => ({ id: '0000000' + i + '-0000-0000-0000-000000000000', kind: 'Listing' })), payToAccount: s.account, paymentExpiresAt: s.account ? new Date(Date.now() + 14*60000).toISOString() : null,
-    trackingToken: 'TOKEN123', itemAmount: 30000000, deliveryFee: 800000, sellerName: 'Chikondi Phones', productDeclined: s.declined });
+    trackingToken: 'TOKEN123', itemAmount: 30000000, deliveryFee: 800000, sellerName: 'Chikondi Phones', productDeclined: s.declined, canSimulatePayment: !!s.account });
   const json = (status, body) => ({ ok: status < 400, status, headers: { get: () => 'application/json' }, json: async () => body, text: async () => JSON.stringify(body) });
   s.fetch = async (url, o = {}) => {
     const m = (o.method || 'GET'); s.calls.push(m + ' ' + url);
@@ -31,6 +32,11 @@ function makeServer(opts = {}) {
       s.account = 'MOCK-ES123'; return json(200, { alreadyConfirmed: false, state: 'PaymentPending', paymentReady: true, accountNumber: s.account });
     }
     if (url.endsWith('/decline-product')) { s.declined = true; return json(200, { declined: true }); }
+    if (url.endsWith('/simulate-payment') && m === 'POST') {
+      const outcome = JSON.parse(o.body).outcome;
+      s.state = outcome === 'succeeded' ? 'Funded' : 'Cancelled';
+      return json(200, { simulated: true, outcome: 'Processed' });
+    }
     if (url.startsWith('/dev/pay-by-token/')) { s.state = 'Funded'; return json(200, {}); }
     if (url.startsWith('/dev/pickup/')) { s.state = 'PickedUp'; return json(200, { state: 'PickedUp', seal: 'SEAL-AB12' }); }
     if (url.startsWith('/dev/deliver/')) { s.state = 'Delivered'; return json(200, {}); }
@@ -47,6 +53,11 @@ async function boot(server) {
   const dom = new JSDOM(html, { runScripts: 'dangerously', url: 'http://localhost/t/TOKEN123', pretendToBeVisual: true,
     beforeParse(w) { w.fetch = server.fetch; w.HTMLDialogElement.prototype.showModal = function () { this.setAttribute('open', ''); }; w.HTMLDialogElement.prototype.close = function () { this.removeAttribute('open'); }; } });
   await sleep(150); return dom;
+}
+async function bootSimulation(server) {
+  const dom = new JSDOM(simulationHtml, { runScripts: 'dangerously', url: 'http://localhost/simulate-payment/TOKEN123', pretendToBeVisual: true,
+    beforeParse(w) { w.fetch = server.fetch; } });
+  await sleep(100); return dom;
 }
 const text = d => d.window.document.getElementById('root').textContent;
 const btn = (d, re) => [...d.window.document.querySelectorAll('button')].find(b => re.test(b.textContent));
@@ -65,10 +76,16 @@ const btn = (d, re) => [...d.window.document.querySelectorAll('button')].find(b 
   ok(srv.declined && /looking into it/.test(text(d)), 'decline sent, page shows review note');
   btn(d, /Yes, this is the item/).click(); await sleep(150);
   ok(srv.confirmed && srv.state === 'PaymentPending', 'approve sent');
-  ok(/Pay to account/.test(text(d)) && /MOCK-ES123/.test(text(d)), 'after approval: payment card with account number');
-  ok(/Pay within 1[34]:/.test(text(d)), 'countdown shown');
-  ok(!!btn(d, /Simulate payment/), 'dev: simulate payment button visible');
-  btn(d, /Simulate payment/).click(); await sleep(150);
+  ok(/Test this payment/.test(text(d)) && /MOCK-ES123/.test(text(d)), 'after approval: payment simulator link shown for mock provider');
+  const simulatorLink = d.window.document.querySelector('a[href="/simulate-payment/TOKEN123"]');
+  ok(!!simulatorLink, 'buyer page links to the standalone simulator');
+  d.window.close();
+  d = await bootSimulation(srv);
+  ok(/Choose a result/.test(d.window.document.getElementById('notice').textContent), 'simulator shows payment details and available outcomes');
+  d.window.document.getElementById('success').click(); await sleep(100);
+  ok(/Payment confirmed/.test(d.window.document.getElementById('notice').textContent) && srv.state === 'Funded', 'simulator success uses the payment outcome flow');
+  d.window.close();
+  d = await boot(srv);
   ok(/Payment received/.test(text(d)), 'funded: payment received card');
   btn(d, /Simulate courier pickup/).click(); await sleep(150);
   ok(/On the way to you/.test(text(d)) && /SMS/.test(text(d)), 'picked up: code note');

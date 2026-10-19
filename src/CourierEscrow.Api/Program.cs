@@ -6,10 +6,27 @@ using CourierEscrow.Api.Endpoints;
 using CourierEscrow.Infrastructure;
 using Microsoft.AspNetCore.Authentication;
 using Microsoft.AspNetCore.RateLimiting;
+using Serilog;
 
 var builder = WebApplication.CreateBuilder(args);
 builder.Configuration.AddJsonFile("appsettings.Local.json", optional: true, reloadOnChange: false);   // your own secrets; git-ignored
 builder.Configuration.AddEnvironmentVariables();
+
+var logDirectory = Environment.GetEnvironmentVariable("COURIERESCROW_LOG_PATH");
+if (string.IsNullOrWhiteSpace(logDirectory))
+    logDirectory = Path.Combine(builder.Environment.ContentRootPath, "App_Data", "logs");
+Directory.CreateDirectory(logDirectory);
+builder.Host.UseSerilog((_, _, logger) => logger
+    .MinimumLevel.Information()
+    .MinimumLevel.Override("Microsoft.AspNetCore", Serilog.Events.LogEventLevel.Warning)
+    .Enrich.FromLogContext()
+    .WriteTo.Console()
+    .WriteTo.File(
+        Path.Combine(logDirectory, "courier-escrow-.log"),
+        rollingInterval: RollingInterval.Day,
+        retainedFileCountLimit: 30,
+        shared: true,
+        flushToDiskInterval: TimeSpan.FromSeconds(1)));
 
 builder.Services.AddEscrowInfrastructure(builder.Configuration);
 
@@ -41,6 +58,7 @@ builder.Services.AddAuthorizationBuilder()
 var app = builder.Build();
 
 app.UseMiddleware<ErrorHandlingMiddleware>();
+app.UseSerilogRequestLogging();
 
 // The courier web app (PWA) is plain static files served from /courier-app/. See wwwroot/courier.
 var courierFiles = new Microsoft.Extensions.FileProviders.PhysicalFileProvider(Path.Combine(app.Environment.ContentRootPath, "wwwroot", "courier"));

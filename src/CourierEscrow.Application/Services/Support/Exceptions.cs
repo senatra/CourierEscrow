@@ -14,7 +14,11 @@ public sealed class TooManyAttemptsException(string message) : Exception(message
 public sealed class ForbiddenException(string message) : Exception(message);
 
 /// <summary>The payment provider failed or refused. <see cref="Transient"/> means trying again later may work.</summary>
-public sealed class ProviderException(string message, bool transient = true, Exception? inner = null) : Exception(message, inner)
+public sealed class ProviderException(string message, bool transient = true, Exception? inner = null,
+    int? statusCode = null, string? requestFingerprint = null, bool idempotencyConflict = false) : Exception(message, inner)
 {
     public bool Transient { get; } = transient;
+    public int? StatusCode { get; } = statusCode;
+    public string? RequestFingerprint { get; } = requestFingerprint;
+    public bool IdempotencyConflict { get; } = idempotencyConflict;
 }

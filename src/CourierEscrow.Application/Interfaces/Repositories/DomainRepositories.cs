@@ -49,6 +49,12 @@ public interface IPaymentIntentRepository
     Task<IReadOnlyList<PaymentIntent>> ListOpenAsync(int take, CancellationToken ct);
 }
 
+public interface IPaymentAttemptRepository
+{
+    void Add(PaymentAttempt attempt);
+    Task<IReadOnlyList<PaymentAttempt>> ListForIntentAsync(Guid paymentIntentId, CancellationToken ct);
+}
+
 public interface IPayoutRepository
 {
     void Add(Payout payout);

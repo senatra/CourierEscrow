@@ -55,7 +55,7 @@ else if (d is not null)
         @if (o.State is "PickedUp" or "Delivered") { <button class="btn" disabled="@busy" @onclick='() => Run(() => Api.ReissueOtp(o.Id), "A new code was sent to the buyer.")'>Reissue buyer code</button> }
         @if (o.State is "Funded" or "Returned") { <button class="btn danger" disabled="@busy" @onclick='() => Ask("refund")'>@(o.State == "Funded" ? "Refund buyer in full" : "Refund buyer (item amount)")</button> }
         @if (o.State is "Funded" or "PickedUp" or "Delivered" or "Rejected" or "Returned") { <button class="btn" disabled="@busy" @onclick='() => Ask("dispute")'>Open dispute</button> }
-        @if (dev && o.State == "PaymentPending" && oneKhusaSandbox)
+        @if (o.State == "PaymentPending" && oneKhusaSandbox)
         {
             <AuthorizeView Roles="ops_admin,finance">
                 <Authorized>

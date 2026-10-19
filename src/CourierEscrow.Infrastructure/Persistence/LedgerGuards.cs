@@ -93,6 +93,22 @@ public static class LedgerGuards
           "LastLoginAt" timestamp with time zone NULL
         );
         CREATE UNIQUE INDEX IF NOT EXISTS "IX_staff_users_Username" ON staff_users ("Username");
+
+        CREATE TABLE IF NOT EXISTS payment_attempts (
+          "Id" uuid NOT NULL PRIMARY KEY,
+          "PaymentIntentId" uuid NOT NULL REFERENCES payment_intents ("Id") ON DELETE RESTRICT,
+          "Provider" character varying(40) NOT NULL,
+          "IdempotencyKey" character varying(100) NOT NULL,
+          "RequestFingerprint" character varying(64),
+          "StartedAt" timestamp with time zone NOT NULL,
+          "FinishedAt" timestamp with time zone NULL,
+          "Outcome" character varying(12) NOT NULL,
+          "ProviderStatusCode" integer NULL,
+          "FailureMessage" character varying(1000),
+          "TransientFailure" boolean NULL
+        );
+        CREATE INDEX IF NOT EXISTS "IX_payment_attempts_PaymentIntentId_StartedAt"
+          ON payment_attempts ("PaymentIntentId", "StartedAt");
         """;
 
     /// <summary>Development convenience. For production, generate real migrations and ship <see cref="Sql"/> and <see cref="Upgrades"/> as part of them.</summary>

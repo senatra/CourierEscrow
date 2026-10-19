@@ -58,9 +58,8 @@ else if (selection is not null)
                     <p class="muted">Uses the local mock provider and development webhook simulation.</p>
                 }
                 <button class="btn @(selection.Selected.Equals(provider.Name, StringComparison.OrdinalIgnoreCase) ? "" : "primary")"
-                        disabled="@busy || !provider.Available || selection.Selected.Equals(provider.Name, StringComparison.OrdinalIgnoreCase)"
                         @onclick="() => Select(provider.Name)">
-                    @(selection.Selected.Equals(provider.Name, StringComparison.OrdinalIgnoreCase) ? "Currently active" : $"Use {provider.Label}")
+                    @(selection.Selected.Equals(provider.Name, StringComparison.OrdinalIgnoreCase) ? "Currently active" : switchingProvider.Equals(provider.Name, StringComparison.OrdinalIgnoreCase) ? "Switching…" : $"Use {provider.Label}")
                 </button>
             </section>
         }
@@ -89,6 +88,7 @@ else if (selection is not null)
     private string? error;
     private string? info;
     private bool busy;
+    private string switchingProvider = "";
     private decimal topUpAmount = 10000m;
     private bool oneKhusaSandbox => selection?.Providers.Any(p => p.Name.Equals("onekhusa", StringComparison.OrdinalIgnoreCase)
         && p.Environment?.Equals("Sandbox", StringComparison.OrdinalIgnoreCase) == true) == true;
@@ -106,6 +106,7 @@ else if (selection is not null)
 
     private async Task Select(string name)
     {
+        switchingProvider = name;
         busy = true;
         error = null;
         info = null;
@@ -115,7 +116,11 @@ else if (selection is not null)
             info = $"Payment provider changed to {selection.Selected}.";
         }
         catch (Exception ex) { error = ex.Message; }
-        finally { busy = false; }
+        finally
+        {
+            switchingProvider = "";
+            busy = false;
+        }
     }
 
     private async Task TopUp()

@@ -26,7 +26,8 @@ public sealed record CollectionStart(string Reference, string? AccountNumber, Da
 /// <summary>Collecting the buyer's money: start a payment request, apply the provider's answer, poll, and expire.</summary>
 public sealed class CollectionService(
     IEscrowRepository escrows, IPartyRepository parties, ICourierRepository couriers, IPaymentIntentRepository intents,
-    ILedgerStore ledger, IPaymentProvider provider, EscrowCommit commit, Notifier notifier, TimeProvider clock, EscrowOptions options)
+    IPaymentAttemptRepository attempts, ILedgerStore ledger, IPaymentProvider provider, EscrowCommit commit,
+    Notifier notifier, TimeProvider clock, EscrowOptions options)
 {
     private static readonly TimeSpan PollEvery = TimeSpan.FromMinutes(2);
 
@@ -58,8 +59,31 @@ public sealed class CollectionService(
             return new CollectionStart(intent.Reference, intent.ProviderRef, intent.ExpiresAt, escrow.State.ToString());
 
         var buyer = await parties.GetAsync(escrow.BuyerId, ct) ?? throw new NotFoundException("Buyer not found.");
-        var requested = await provider.RequestCollectionAsync(
-            new CollectionRequest(intent.Reference, intent.Amount, intent.Currency, buyer.Phone, buyer.WalletNetwork, $"Order {escrow.OrderNumber}"), ct);
+        var previousAttempts = await attempts.ListForIntentAsync(intent.Id, ct);
+        var request = new CollectionRequest(intent.Reference, intent.Amount, intent.Currency, buyer.Phone, buyer.WalletNetwork,
+            $"Order {escrow.OrderNumber}", previousAttempts.LastOrDefault()?.IdempotencyKey ?? intent.Reference);
+        CollectionRequested requested;
+        for (var conflictRetry = 0; ; conflictRetry++)
+        {
+            var attempt = PaymentAttempt.Start(intent.Id, provider.Name, request.IdempotencyKey ?? intent.Reference, clock.GetUtcNow());
+            attempts.Add(attempt);
+            await commit.SaveAsync(ct);
+
+            try
+            {
+                requested = await provider.RequestCollectionAsync(request, ct);
+                attempt.Succeed(requested.RequestFingerprint, requested.ProviderStatusCode, clock.GetUtcNow());
+                await commit.SaveAsync(ct);
+                break;
+            }
+            catch (ProviderException ex)
+            {
+                attempt.Fail(ex.RequestFingerprint, ex.StatusCode, ex.Message, ex.Transient, clock.GetUtcNow());
+                await commit.SaveAsync(ct);
+                if (!ex.IdempotencyConflict || conflictRetry > 0) throw;
+                request = request with { IdempotencyKey = $"ce-{Guid.NewGuid():N}" };
+            }
+        }
 
         intent.MarkPending(requested.AccountNumber ?? requested.ProviderRef, requested.ExpiresAt);
         notifier.Queue(escrow, buyer.Phone, "payment_instructions", SmsTemplates.PaymentInstructions(escrow, requested.AccountNumber, intent.ExpiresAt, now));

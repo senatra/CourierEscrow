@@ -52,7 +52,7 @@ public class OneKhusaProviderTests
     }
 
     private const string TokenOk = "{\"accessToken\":\"tok-1\",\"expiresOn\":\"2026-10-14T09:05:00Z\",\"expiryInMinutes\":5}";
-    private const string RtpOk = "{\"merchantAccountNumber\":12345678,\"timedAccountNumber\":\"7788990011\",\"expiryDate\":\"2026-10-14T09:15:00Z\",\"expiryInMinutes\":15}";
+    private const string RtpOk = "{\"merchantAccountNumber\":12345678,\"timedAccountNumber\":\"7788990011\",\"expiryDate\":\"2026-10-14T11:15:00+02:00\",\"expiryInMinutes\":15}";
 
     private static (OneKhusaProvider P, FakeApi Api, TestClock Clock) Build(string environment = "Sandbox")
     {
@@ -91,10 +91,13 @@ public class OneKhusaProviderTests
 
         Assert.Equal("7788990011", result.AccountNumber);
         Assert.Equal(new DateTimeOffset(2026, 10, 14, 9, 15, 0, TimeSpan.Zero), result.ExpiresAt);
+        Assert.Equal(TimeSpan.Zero, result.ExpiresAt?.Offset);
         var rtp = Assert.Single(api.Requests.Where(r => r.Url.EndsWith("collections/requestToPay/initiate")));
         Assert.True(rtp.Url.StartsWith("https://api.onekhusa.com/sandbox/v1/"));
         Assert.Equal("Bearer tok-1", rtp.Headers["Authorization"]);
         Assert.Equal("ES1234567890AB01", rtp.Headers["X-Idempotency-Key"]);
+        Assert.Equal(Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(rtp.Body))), result.RequestFingerprint);
+        Assert.Equal(200, result.ProviderStatusCode);
         using var json = JsonDocument.Parse(rtp.Body);
         Assert.Equal(12345678L, json.RootElement.GetProperty("merchantAccountNumber").GetInt64());
         Assert.Equal(10_000m, json.RootElement.GetProperty("transactionAmount").GetDecimal());   // tambala to kwacha
@@ -164,6 +167,35 @@ public class OneKhusaProviderTests
         api.Routes["requestToPay/initiate"].Clear();
         api.On("requestToPay/initiate", HttpStatusCode.ServiceUnavailable, "down");
         Assert.True((await Assert.ThrowsAsync<ProviderException>(() => p.RequestCollectionAsync(Req(), default))).Transient);
+    }
+
+    [Fact]
+    public async Task A_conflicting_idempotency_key_records_status_and_payload_fingerprint()
+    {
+        var (p, api, _) = Build();
+        api.On("requestToPay/initiate", HttpStatusCode.Conflict,
+            "{\"message\":\"The same idempotency key was used with a different request payload.\"}");
+
+        var error = await Assert.ThrowsAsync<ProviderException>(() => p.RequestCollectionAsync(Req(), default));
+
+        Assert.Equal(409, error.StatusCode);
+        Assert.True(error.IdempotencyConflict);
+        Assert.NotNull(error.RequestFingerprint);
+        Assert.Equal(64, error.RequestFingerprint.Length);
+        Assert.Contains("different request payload", error.Message);
+    }
+
+    [Fact]
+    public async Task Validation_errors_include_the_provider_field_details()
+    {
+        var (p, api, _) = Build();
+        api.On("requestToPay/initiate", HttpStatusCode.BadRequest,
+            "{\"title\":\"One or more validation errors occurred.\",\"errors\":{\"capturedBy\":[\"The capturedBy field is not a valid email address.\"]}}");
+
+        var error = await Assert.ThrowsAsync<ProviderException>(() => p.RequestCollectionAsync(Req(), default));
+
+        Assert.Contains("capturedBy", error.Message);
+        Assert.Contains("not a valid email address", error.Message);
     }
 
     [Fact]
@@ -258,7 +290,7 @@ public class OneKhusaProviderTests
     public async Task Connectors_are_listed_with_a_guess_at_the_network_so_ops_can_configure_them()
     {
         var (p, api, _) = Build();
-        api.On("connectors/GetAll", HttpStatusCode.OK,
+        api.On("core/connectors/GetAll", HttpStatusCode.OK,
             "[{\"connectorId\":11,\"connectorName\":\"Airtel Money\",\"channelCode\":\"M\",\"isActive\":true}," +
             "{\"connectorId\":12,\"connectorName\":\"TNM Mpamba\",\"channelCode\":\"M\",\"isActive\":true}," +
             "{\"connectorId\":13,\"connectorName\":\"National Bank\",\"channelCode\":\"B\",\"isActive\":false}]");
@@ -357,11 +389,41 @@ public class OneKhusaProviderTests
         Assert.Equal("TXSIM1", result.TransactionReference);
         Assert.Equal(250, result.Fee);
         var request = api.Requests.Single(r => r.Url.EndsWith("requestToPay/addFakeTransaction"));
+        Assert.Equal("fake-collection-11005533", request.Headers["X-Idempotency-Key"]);
         using var json = JsonDocument.Parse(request.Body);
         Assert.Equal(212188, json.RootElement.GetProperty("connectorId").GetInt32());
         Assert.Equal("11005533", json.RootElement.GetProperty("timedAccountNumber").GetString());
         Assert.Equal("MWK", json.RootElement.GetProperty("currencyCode").GetString());
         Assert.Equal(10000m, json.RootElement.GetProperty("transactionAmount").GetDecimal());
+    }
+
+    [Fact]
+    public async Task Sandbox_accept_simulation_includes_provider_failure_details()
+    {
+        var (p, api, _) = Build();
+        api.On("addFakeTransaction", HttpStatusCode.OK, """
+            {"transaction":{"responseCode":"000","transactionStatusName":"Failed","responseMessage":"Timed account number has expired"}}
+            """);
+
+        var error = await Assert.ThrowsAsync<ProviderException>(() => p.SimulateAcceptRequestToPayAsync("11005533", 1_000_000, default));
+
+        Assert.Contains("000", error.Message);
+        Assert.Contains("Failed", error.Message);
+        Assert.Contains("Timed account number has expired", error.Message);
+    }
+
+    [Fact]
+    public async Task Sandbox_accept_simulation_treats_success_transaction_status_as_success()
+    {
+        var (p, api, _) = Build();
+        api.On("addFakeTransaction", HttpStatusCode.OK, """
+            {"transaction":{"transactionReferenceNumber":"TXSIM2","transactionFee":30.50,"responseCode":"000","transactionStatusCode":"S","transactionStatusName":"Success","responseMessage":"Successful transaction"}}
+            """);
+
+        var result = await p.SimulateAcceptRequestToPayAsync("11005533", 30_500_000, default);
+
+        Assert.Equal("TXSIM2", result.TransactionReference);
+        Assert.Equal(3_050, result.Fee);
     }
 
     [Fact]
@@ -394,6 +456,44 @@ public class OneKhusaProviderTests
         Assert.Equal(10_000, n.Amount);
         Assert.Equal(250, n.Fee);
         Assert.Equal("MWK", n.Currency);
+    }
+
+    [Fact]
+    public void A_pascal_case_collection_success_payload_is_parsed()
+    {
+        const string body = """
+            {
+              "MetaData": {
+                "AdditionalInfo": "",
+                "ReferenceNumber": "ES6071F10BCB0947",
+                "SourceDescription": "Order NX-1012",
+                "TimedAccountNumber": "14323496"
+              },
+              "ConnectorId": 112100,
+              "ResponseCode": "S100",
+              "TransactionFee": 3050,
+              "TransactionCode": "BAM",
+              "TransactionDate": "2026-10-19T11:21:18.1555912+02:00",
+              "SourceAccountName": "BLESSINGS BOWA",
+              "SourceInstitution": "One Khusa",
+              "TransactionAmount": 305000,
+              "SourceAccountNumber": "6460331",
+              "SourceReferenceNumber": "WK261019MLND",
+              "TransactionStatusCode": "S",
+              "TransactionDescription": "Fake Request To Pay Transaction",
+              "BeneficiaryAccountNumber": "79721099",
+              "TransactionReferenceNumber": "261019735GRJ9D"
+            }
+            """;
+
+        var notification = Assert.IsType<CollectionNotification>(OneKhusaWebhookParser.Parse("payrequest.success", body));
+
+        Assert.Equal("ES6071F10BCB0947", notification.Reference);
+        Assert.Equal("261019735GRJ9D", notification.ProviderRef);
+        Assert.Equal(CollectionEventKind.Succeeded, notification.Kind);
+        Assert.Equal(30_500_000, notification.Amount);
+        Assert.Equal(305_000, notification.Fee);
+        Assert.Equal("MWK", notification.Currency);
     }
 
     [Fact]

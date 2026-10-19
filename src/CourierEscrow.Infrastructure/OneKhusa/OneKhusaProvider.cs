@@ -111,20 +111,32 @@ public sealed class OneKhusaProvider(IHttpClientFactory factory, OneKhusaOptions
 
     public async Task<CollectionRequested> RequestCollectionAsync(CollectionRequest r, CancellationToken ct)
     {
-        using var doc = await SendAsync(HttpMethod.Post, "collections/requestToPay/initiate", new
+        var requestBody = new
         {
             merchantAccountNumber = options.MerchantAccountNumber,
             referenceNumber = r.Reference,
             transactionAmount = Money.ToMajor(r.Amount),
             transactionDescription = r.Description,
             capturedBy = options.CapturedBy
-        }, r.Reference, ct);
+        };
+        var requestFingerprint = Fingerprint(requestBody);
+        try
+        {
+            using var doc = await SendAsync(HttpMethod.Post, "collections/requestToPay/initiate", requestBody,
+                r.IdempotencyKey ?? r.Reference, ct);
 
-        var root = doc.RootElement;
-        var tan = Str(root, "timedAccountNumber");
-        DateTimeOffset? expires = root.TryGetProperty("expiryDate", out var e) && e.TryGetDateTimeOffset(out var dt) ? dt : null;
-        if (tan is null) throw new ProviderException("OneKhusa did not return a timed account number.", transient: false);
-        return new CollectionRequested(tan, tan, expires);
+            var root = doc.RootElement;
+            var tan = Str(root, "timedAccountNumber");
+            DateTimeOffset? expires = root.TryGetProperty("expiryDate", out var e) && e.TryGetDateTimeOffset(out var dt)
+                ? dt.ToUniversalTime()
+                : null;
+            if (tan is null) throw new ProviderException("OneKhusa did not return a timed account number.", transient: false);
+            return new CollectionRequested(tan, tan, expires, requestFingerprint, 200);
+        }
+        catch (ProviderException ex)
+        {
+            throw new ProviderException(ex.Message, ex.Transient, ex, ex.StatusCode, requestFingerprint, ex.IdempotencyConflict);
+        }
     }
 
     public async Task<OneKhusaFakeCollectionResult> SimulateAcceptRequestToPayAsync(string timedAccountNumber, long amount, CancellationToken ct)
@@ -139,11 +151,22 @@ public sealed class OneKhusaProvider(IHttpClientFactory factory, OneKhusaOptions
             timedAccountNumber,
             currencyCode = options.CurrencyCode,
             capturedBy = options.CapturedBy
-        }, $"fake-collection:{timedAccountNumber}", ct);
+        }, $"fake-collection-{timedAccountNumber}", ct);
 
         var tx = doc.RootElement.TryGetProperty("transaction", out var transaction) ? transaction : doc.RootElement;
         var code = Str(tx, "responseCode") ?? Str(doc.RootElement, "responseCode");
-        if (code is null || !code.StartsWith('S')) throw new ProviderException($"OneKhusa sandbox collection simulation failed: {code ?? "no response code"}", transient: false);
+        var transactionStatusCode = Str(tx, "transactionStatusCode") ?? Str(doc.RootElement, "transactionStatusCode");
+        var statusName = Str(tx, "transactionStatusName") ?? Str(doc.RootElement, "transactionStatusName");
+        var isSuccessful = code?.StartsWith('S') == true
+                           || string.Equals(transactionStatusCode, "S", StringComparison.OrdinalIgnoreCase)
+                           || string.Equals(statusName, "Success", StringComparison.OrdinalIgnoreCase);
+        if (!isSuccessful)
+        {
+            var responseMessage = Str(tx, "responseMessage") ?? Str(doc.RootElement, "responseMessage");
+            var details = string.Join("; ", new[] { statusName, responseMessage }.Where(value => !string.IsNullOrWhiteSpace(value)));
+            var suffix = string.IsNullOrWhiteSpace(details) ? "" : $" ({details})";
+            throw new ProviderException($"OneKhusa sandbox collection simulation failed: {code ?? "no response code"}{suffix}", transient: false);
+        }
         var transactionReference = Str(tx, "transactionReferenceNumber") ?? timedAccountNumber;
         var fee = tx.TryGetProperty("transactionFee", out var feeValue) && feeValue.TryGetDecimal(out var feeMajor) ? Money.ToMinor(feeMajor) : 0;
         return new OneKhusaFakeCollectionResult(transactionReference, fee);
@@ -243,7 +266,7 @@ public sealed class OneKhusaProvider(IHttpClientFactory factory, OneKhusaOptions
     /// <summary>Lists the connectors so an admin can find the Airtel and TNM ids to put in configuration.</summary>
     public async Task<IReadOnlyList<OneKhusaConnector>> ListConnectorsAsync(CancellationToken ct)
     {
-        using var doc = await SendAsync(HttpMethod.Get, "connectors/GetAll", null, null, ct);
+        using var doc = await SendAsync(HttpMethod.Get, "core/connectors/GetAll", null, null, ct);
         var list = new List<OneKhusaConnector>();
         foreach (var c in doc.RootElement.ValueKind == JsonValueKind.Array ? doc.RootElement.EnumerateArray() : Enumerable.Empty<JsonElement>())
         {
@@ -327,7 +350,8 @@ public sealed class OneKhusaProvider(IHttpClientFactory factory, OneKhusaOptions
             using var _ = res;
             var text = await res.Content.ReadAsStringAsync(ct);
             if (!res.IsSuccessStatusCode)
-                throw new ProviderException($"OneKhusa sign-in failed ({(int)res.StatusCode}): {Message(text)}", transient: (int)res.StatusCode >= 500);
+                throw new ProviderException($"OneKhusa sign-in failed ({(int)res.StatusCode}): {Message(text)}",
+                    transient: (int)res.StatusCode >= 500, statusCode: (int)res.StatusCode);
 
             using var doc = JsonDocument.Parse(text);
             cache.Token = Str(doc.RootElement, "accessToken") ?? throw new ProviderException("OneKhusa returned no access token.", transient: false);
@@ -375,7 +399,12 @@ public sealed class OneKhusaProvider(IHttpClientFactory factory, OneKhusaOptions
                 }
 
                 var transient = (int)res.StatusCode >= 500 || res.StatusCode is HttpStatusCode.TooManyRequests or HttpStatusCode.RequestTimeout;
-                throw new ProviderException($"OneKhusa returned {(int)res.StatusCode}: {Message(text)}", transient);
+                var message = Message(text);
+                var idempotencyConflict = res.StatusCode == HttpStatusCode.Conflict
+                    && message.Contains("idempotency", StringComparison.OrdinalIgnoreCase)
+                    && message.Contains("different", StringComparison.OrdinalIgnoreCase);
+                throw new ProviderException($"OneKhusa returned {(int)res.StatusCode}: {message}", transient,
+                    statusCode: (int)res.StatusCode, idempotencyConflict: idempotencyConflict);
             }
         }
     }
@@ -383,12 +412,29 @@ public sealed class OneKhusaProvider(IHttpClientFactory factory, OneKhusaOptions
     private static string? Str(JsonElement e, string name) =>
         e.ValueKind == JsonValueKind.Object && e.TryGetProperty(name, out var v) && v.ValueKind is JsonValueKind.String or JsonValueKind.Number ? v.ToString() : null;
 
+    private static string Fingerprint(object body) => Convert.ToHexString(SHA256.HashData(JsonSerializer.SerializeToUtf8Bytes(body, Json)));
+
     private static string Message(string text)
     {
         try
         {
             using var doc = JsonDocument.Parse(text);
-            return Str(doc.RootElement, "detail") ?? Str(doc.RootElement, "message") ?? Str(doc.RootElement, "title") ?? text;
+            var root = doc.RootElement;
+            var summary = Str(root, "detail") ?? Str(root, "message") ?? Str(root, "title");
+            if (root.TryGetProperty("errors", out var errors) && errors.ValueKind == JsonValueKind.Object)
+            {
+                var details = errors.EnumerateObject().Select(error =>
+                {
+                    var messages = error.Value.ValueKind == JsonValueKind.Array
+                        ? string.Join(", ", error.Value.EnumerateArray().Select(value => value.ToString()))
+                        : error.Value.ToString();
+                    return $"{error.Name}: {messages}";
+                });
+                var validationDetails = string.Join("; ", details);
+                if (!string.IsNullOrWhiteSpace(validationDetails))
+                    return string.IsNullOrWhiteSpace(summary) ? validationDetails : $"{summary} {validationDetails}";
+            }
+            return summary ?? text;
         }
         catch (JsonException) { return string.IsNullOrWhiteSpace(text) ? "no details" : text[..Math.Min(text.Length, 200)]; }
     }
@@ -415,7 +461,7 @@ public static class OneKhusaWebhookParser
             if (eventCode.StartsWith("payrequest.", StringComparison.OrdinalIgnoreCase))
             {
                 var kind = eventCode.ToLowerInvariant() switch { "payrequest.success" => CollectionEventKind.Succeeded, "payrequest.reversed" => CollectionEventKind.Reversed, _ => (CollectionEventKind?)null };
-                var reference = root.TryGetProperty("metaData", out var meta) ? Text(meta, "referenceNumber") : null;
+                var reference = TryGetProperty(root, "metaData", out var meta) ? Text(meta, "referenceNumber") : null;
                 reference ??= Text(root, "referenceNumber") ?? Text(root, "sourceReferenceNumber");
                 if (kind is null || string.IsNullOrWhiteSpace(reference)) return null;
                 return new CollectionNotification(key, reference, kind.Value, amount, fee, Text(root, "currencyCode") ?? "MWK", tx);
@@ -435,8 +481,26 @@ public static class OneKhusaWebhookParser
     }
 
     private static string? Text(JsonElement e, string name) =>
-        e.ValueKind == JsonValueKind.Object && e.TryGetProperty(name, out var v) && v.ValueKind is JsonValueKind.String or JsonValueKind.Number ? v.ToString() : null;
+        TryGetProperty(e, name, out var v) && v.ValueKind is JsonValueKind.String or JsonValueKind.Number ? v.ToString() : null;
 
     private static long Minor(JsonElement e, string name) =>
-        e.TryGetProperty(name, out var v) && v.ValueKind == JsonValueKind.Number && v.TryGetDecimal(out var d) ? Money.ToMinor(d) : 0;
+        TryGetProperty(e, name, out var v) && v.ValueKind == JsonValueKind.Number && v.TryGetDecimal(out var d) ? Money.ToMinor(d) : 0;
+
+    private static bool TryGetProperty(JsonElement element, string name, out JsonElement value)
+    {
+        if (element.ValueKind == JsonValueKind.Object)
+        {
+            foreach (var property in element.EnumerateObject())
+            {
+                if (property.Name.Equals(name, StringComparison.OrdinalIgnoreCase))
+                {
+                    value = property.Value;
+                    return true;
+                }
+            }
+        }
+
+        value = default;
+        return false;
+    }
 }

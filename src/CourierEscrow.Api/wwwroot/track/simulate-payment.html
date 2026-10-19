@@ -1,0 +1,137 @@
+<!doctype html>
+<html lang="en">
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+    <meta name="theme-color" content="#0b5f3f">
+    <title>Payment simulator · Nexa Escrow</title>
+    <style>
+        :root { color-scheme: light; --bg:#eef3f0; --card:#fff; --text:#0f1a14; --muted:#4b5b52; --line:#cfdad3; --brand:#0b6b44; --soft:#d6efe1; --amber:#7a4e00; --amber-soft:#fff0c7; --red:#a8200f; --red-soft:#fde2de; --green:#146b3a; --green-soft:#e4f5e9; --shadow:0 8px 24px rgba(15,26,20,.08); --radius:20px; }
+        @media (prefers-color-scheme: dark) { :root { color-scheme:dark; --bg:#0b110e; --card:#141c18; --text:#eef7f1; --muted:#b1c0b7; --line:#34443b; --brand:#61c899; --soft:#1b3e2f; --amber:#ffd17a; --amber-soft:#3a2d12; --red:#ff9d91; --red-soft:#421d19; --green:#8de2ac; --green-soft:#183524; --shadow:0 8px 24px rgba(0,0,0,.25); } }
+        * { box-sizing:border-box; }
+        body { margin:0; min-height:100vh; padding:24px 14px; display:grid; place-items:center; color:var(--text); background:var(--bg); font:16px/1.5 system-ui,-apple-system,"Segoe UI",sans-serif; }
+        main { width:min(100%,620px); overflow:hidden; background:var(--card); border:1px solid var(--line); border-radius:var(--radius); box-shadow:var(--shadow); }
+        header { padding:24px; border-bottom:1px solid var(--line); }
+        .chip { display:inline-flex; align-items:center; gap:7px; padding:5px 11px; margin-bottom:12px; border-radius:999px; color:var(--amber); background:var(--amber-soft); font-size:12px; font-weight:750; letter-spacing:.04em; text-transform:uppercase; }
+        h1 { margin:0 0 5px; font-size:clamp(23px,5vw,30px); line-height:1.2; }
+        p { margin:0; color:var(--muted); }
+        section { padding:22px 24px 24px; }
+        .summary { margin-bottom:18px; overflow:hidden; border:1px solid var(--line); border-radius:14px; }
+        .row { display:flex; justify-content:space-between; gap:14px; padding:12px 15px; border-bottom:1px solid var(--line); }
+        .row:last-child { border:0; }
+        .label { color:var(--muted); }
+        .value { text-align:right; font-weight:700; overflow-wrap:anywhere; }
+        .amount { color:white; background:#0f5bd7; }
+        .amount .label,.amount .value { color:white; }
+        .notice { margin-bottom:18px; padding:13px 15px; border:1px solid #edcd83; border-radius:13px; color:var(--amber); background:var(--amber-soft); font-size:14px; }
+        .notice.error { border-color:#efb4ad; color:var(--red); background:var(--red-soft); }
+        .notice.success { border-color:#b8dfc2; color:var(--green); background:var(--green-soft); }
+        .actions { display:grid; gap:10px; }
+        button,.link { display:flex; width:100%; min-height:48px; justify-content:center; align-items:center; padding:11px 16px; border:0; border-radius:11px; color:#fff; background:var(--brand); font:inherit; font-weight:750; text-align:center; text-decoration:none; cursor:pointer; }
+        button.fail { color:var(--red); border:1px solid var(--line); background:transparent; }
+        button:disabled { opacity:.55; cursor:wait; }
+        .link { margin-top:10px; color:var(--brand); border:1px solid var(--line); background:transparent; }
+        [hidden] { display:none!important; }
+        @media(max-width:480px) { header,section { padding-left:18px; padding-right:18px; } .row { align-items:flex-start; flex-direction:column; gap:2px; } .value { text-align:left; } }
+    </style>
+</head>
+<body>
+<main>
+    <header>
+        <div id="mode" class="chip">Test mode · no real money</div>
+        <h1>Simulate a payment</h1>
+        <p id="intro">Use this screen to test how the order responds to a payment result.</p>
+    </header>
+    <section>
+        <div id="notice" class="notice" role="status">Loading payment details…</div>
+        <div id="summary" class="summary" hidden>
+            <div class="row"><span class="label">Order</span><span class="value" id="order"></span></div>
+            <div class="row"><span class="label">Status</span><span class="value" id="status"></span></div>
+            <div class="row"><span class="label" id="referenceLabel">Mock reference</span><span class="value" id="reference"></span></div>
+            <div class="row amount"><span class="label">Amount</span><span class="value" id="amount"></span></div>
+        </div>
+        <div id="actions" class="actions" hidden>
+            <button id="success" type="button">Simulate successful payment</button>
+            <button id="failure" class="fail" type="button">Simulate failed payment</button>
+        </div>
+        <a id="back" class="link" href="#">Back to order</a>
+    </section>
+</main>
+<script>
+    (() => {
+        const token = decodeURIComponent(location.pathname.split('/').filter(Boolean).pop() || '');
+        const trackingUrl = '/track/' + encodeURIComponent(token);
+        const notice = document.getElementById('notice');
+        const actions = document.getElementById('actions');
+        document.getElementById('back').href = '/t/' + encodeURIComponent(token);
+
+        function showMessage(text, kind) {
+            notice.textContent = text;
+            notice.className = 'notice' + (kind ? ' ' + kind : '');
+            notice.hidden = false;
+        }
+
+        async function load() {
+            try {
+                const response = await fetch(trackingUrl, { headers: { Accept: 'application/json' } });
+                const data = await response.json();
+                if (!response.ok) throw new Error(data.detail || data.title || 'Could not load this payment.');
+                document.getElementById('order').textContent = data.orderNumber;
+                document.getElementById('status').textContent = data.state;
+                document.getElementById('reference').textContent = data.payToAccount || '—';
+                document.getElementById('amount').textContent = new Intl.NumberFormat(undefined, { style:'currency', currency:data.currency }).format(data.total / 100);
+                document.getElementById('summary').hidden = false;
+                const oneKhusaSandbox = data.simulatorProvider === 'onekhusa-sandbox';
+                if (oneKhusaSandbox) {
+                    document.getElementById('mode').textContent = 'OneKhusa Sandbox · fake transaction';
+                    document.getElementById('intro').textContent = 'This uses the displayed timed account number with OneKhusa’s Sandbox Fake Data URL. No live money moves.';
+                    document.getElementById('referenceLabel').textContent = 'Timed account number (TAN)';
+                    document.getElementById('success').textContent = 'Simulate successful Sandbox payment';
+                    document.getElementById('failure').hidden = true;
+                }
+
+                if (!data.canSimulatePayment) {
+                    actions.hidden = true;
+                    showMessage(data.simulationUnavailableReason || 'Simulation is unavailable for this payment.', 'error');
+                } else if (data.state !== 'PaymentPending') {
+                    actions.hidden = true;
+                    showMessage(data.state === 'Funded' ? 'Payment is already confirmed. The funds are held in escrow.' : 'This order is not waiting for a payment.', data.state === 'Funded' ? 'success' : 'error');
+                } else {
+                    actions.hidden = false;
+                    showMessage(oneKhusaSandbox
+                        ? 'Confirm the successful fake transaction. The resulting payment is applied to this order.'
+                        : 'Choose a result to send through the normal payment notification and escrow flow.');
+                }
+            } catch (error) {
+                actions.hidden = true;
+                showMessage(error.message || 'Could not load this payment.', 'error');
+            }
+        }
+
+        async function simulate(outcome) {
+            const buttons = [...actions.querySelectorAll('button')];
+            buttons.forEach(button => button.disabled = true);
+            showMessage('Recording the simulated result…');
+            try {
+                const response = await fetch(trackingUrl + '/simulate-payment', {
+                    method:'POST', headers:{ 'Content-Type':'application/json', Accept:'application/json' },
+                    body:JSON.stringify({ outcome })
+                });
+                const result = await response.json();
+                if (!response.ok) throw new Error(result.detail || result.title || 'The simulated payment could not be recorded.');
+                showMessage(outcome === 'succeeded' ? 'Payment confirmed. The order is now funded and the money is held in escrow.' : 'Payment failed. The order was cancelled by the normal payment-failure flow.', outcome === 'succeeded' ? 'success' : 'error');
+                actions.hidden = true;
+                document.getElementById('status').textContent = outcome === 'succeeded' ? 'Funded' : 'Cancelled';
+            } catch (error) {
+                showMessage(error.message || 'The simulated payment could not be recorded.', 'error');
+                buttons.forEach(button => button.disabled = false);
+            }
+        }
+
+        document.getElementById('success').addEventListener('click', () => simulate('succeeded'));
+        document.getElementById('failure').addEventListener('click', () => simulate('failed'));
+        load();
+    })();
+</script>
+</body>
+</html>

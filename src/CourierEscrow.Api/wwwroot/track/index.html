@@ -544,6 +544,21 @@
     }
 
     function payCard(v) {
+        if (v.canSimulatePayment) {
+            const oneKhusaSandbox = v.simulatorProvider === 'onekhusa-sandbox';
+            return h('section', { class: 'card action' },
+                h('div', { class: 'eyebrow' }, oneKhusaSandbox ? 'OneKhusa Sandbox · No live money moves' : 'Simulation · No real money moves'),
+                h('h2', {}, 'Test this payment'),
+                h('p', { class: 'sub' }, oneKhusaSandbox
+                    ? 'This order has a OneKhusa Sandbox timed account. Open the simulator to send a fake transaction through OneKhusa’s Sandbox Fake Data URL.'
+                    : 'This order is using the mock payment provider. Open the simulator to test a successful or failed payment.'),
+                h('div', { class: 'paybox' },
+                    h('small', {}, 'Amount to simulate'), h('div', { class: 'payamt' }, money(v.total, v.currency)),
+                    h('small', { style: 'margin-top:.7rem' }, oneKhusaSandbox ? 'Timed account number (TAN)' : 'Mock provider reference'),
+                    h('div', { class: 'acct' }, v.payToAccount || 'Pending')),
+                h('a', { class: 'btn', href: '/simulate-payment/' + encodeURIComponent(token) }, 'Open payment simulator'));
+        }
+
         if (!v.payToAccount) {
             // Approved, but the provider has not given payment details (yet). Approving again resumes it safely.
             const again = h('button', { type: 'button', class: 'btn' }, icon('undo'), 'Get my payment details');
@@ -632,7 +647,6 @@
 
     // dev-only actions per order state: [endpoint, button label, success message]
     const DEV_ACTIONS = {
-        PaymentPending: ['/dev/pay-by-token/', 'Simulate payment', () => 'Test payment received. Your money is now held in escrow.'],
         Funded:         ['/dev/pickup/', 'Simulate courier pickup', d => 'Courier picked up the item.' + (d.seal ? ' Seal: ' + d.seal : '') + ' The buyer code is in the test SMS inbox.'],
         PickedUp:       ['/dev/deliver/', 'Simulate courier arrival', () => 'Courier has arrived at your location.'],
         Delivered:      ['/dev/accept/', 'Simulate buyer accepting (gives the code)', () => 'Item accepted. Funds released to the seller.']

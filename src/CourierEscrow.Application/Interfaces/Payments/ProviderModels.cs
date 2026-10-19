@@ -1,7 +1,9 @@
 namespace CourierEscrow.Application.Interfaces;
 
-public sealed record CollectionRequest(string Reference, long Amount, string Currency, string BuyerPhone, string? BuyerNetwork, string Description);
-public sealed record CollectionRequested(string? ProviderRef, string? AccountNumber, DateTimeOffset? ExpiresAt);
+public sealed record CollectionRequest(string Reference, long Amount, string Currency, string BuyerPhone, string? BuyerNetwork,
+    string Description, string? IdempotencyKey = null);
+public sealed record CollectionRequested(string? ProviderRef, string? AccountNumber, DateTimeOffset? ExpiresAt,
+    string? RequestFingerprint = null, int? ProviderStatusCode = null);
 
 public enum RemoteStatus { Unknown, Pending, Succeeded, Failed, Reversed, RequiresReview }
 public sealed record CollectionStatusResult(RemoteStatus Status, long? Amount, long Fee);

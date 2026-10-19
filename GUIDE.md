@@ -355,13 +355,39 @@ Development connects to `courier_escrow_dev`; Production must use a separate dat
 
 The published API reads `appsettings.Production.json` only when `ASPNETCORE_ENVIRONMENT=Production`; that file enables `Database:AutoInit` and disables development-only endpoints. `appsettings.Local.json` is optional and git-ignored; it may be used locally but is explicitly excluded from publish output so a local file cannot overwrite IIS configuration. Configure production secrets such as `ConnectionStrings__Escrow`, `Security__DataKey`, `Auth__TokenSecret`, `Escrow__OtpSecret`, and `Storage__SigningSecret` for IIS (for example, through IIS Configuration Editor's `system.webServer/aspNetCore/environmentVariables` or the hosting service's protected environment-variable mechanism), then recycle the app pool. Keep connection-string secrets out of source control and restrict access to any IIS configuration that stores them.
 
-The PostgreSQL role in that connection string needs `CREATEDB` to let `EnsureCreated` create a missing database, and permission to create objects in the target database. If the database already exists, it can be created by a DBA first and the application role granted ownership or schema/table creation privileges; do not point Production at the Development database. Check the IIS stdout log or Windows Application log for `Escrow database initialization failed` and the underlying PostgreSQL exception. `EnsureCreated` does not repair an existing partially-created schema, so preserve the data and use a proper migration rather than dropping the database.
+The PostgreSQL role in that connection string needs `CREATEDB` to let `EnsureCreated` create a missing database, and permission to create objects in the target database. If the database already exists, it can be created by a DBA first and the application role granted ownership or schema/table creation privileges; do not point Production at the Development database. `EnsureCreated` does not repair an existing partially-created schema, so preserve the data and use a proper migration rather than dropping the database.
+
+### IIS application logs
+
+The API writes structured Serilog events to daily rolling files in `App_Data/logs` under the published API directory by default, retaining 30 days. Set the `COURIERESCROW_LOG_PATH` environment variable in IIS to use a separate directory, such as `C:\ProgramData\CourierEscrow\Logs`. Grant the API application-pool identity Modify permission on the selected directory; without write permission, file logging cannot start. For the default location, run an elevated PowerShell command on the server, replacing the pool name with the API's actual application-pool name:
+
+```powershell
+New-Item -ItemType Directory -Force 'C:\courierescrow\api\App_Data\logs' | Out-Null
+icacls 'C:\courierescrow\api\App_Data\logs' /grant 'IIS AppPool\CourierEscrowApi:(OI)(CI)M' /T
+```
+
+After publishing and recycling the pool, inspect the newest `courier-escrow-YYYYMMDD.log`. Request completion events include status, duration, and trace ID. A failed buyer payment setup logs the provider diagnostic and the same trace ID; search for `Payment setup failed` to see OneKhusa's rejection detail. Logs do not include request bodies, access tokens, API secrets, or webhook secrets. Keep the log directory access restricted and rotate/review it as part of operations.
+
+Collection calls also create one row per provider attempt in PostgreSQL's `payment_attempts` table. Each row stores its intent, provider, idempotency key, request fingerprint, start/finish time, outcome, HTTP status, and safe error summary; it never stores the request body or credentials. `Database:AutoInit` creates this table on startup for existing databases as well as new ones. Inspect attempts for a payment reference with:
+
+If OneKhusa returns HTTP 409 specifically because an idempotency key was reused with a different request payload, the API records that failed attempt and automatically retries once with a fresh `ce-...` key. Other errors do not rotate the key or retry automatically. A subsequent manual retry reuses the latest key so an ambiguous provider timeout does not create a duplicate payment request.
+
+```sql
+SELECT i."Reference", a."StartedAt", a."FinishedAt", a."Outcome", a."ProviderStatusCode",
+       a."IdempotencyKey", a."RequestFingerprint", a."FailureMessage"
+FROM payment_attempts AS a
+JOIN payment_intents AS i ON i."Id" = a."PaymentIntentId"
+WHERE i."Reference" = 'ES_REFERENCE_HERE'
+ORDER BY a."StartedAt";
+```
 
 The API listens on port `5080` in Development and `5081` in Production. The Production console defaults to `http://localhost:5081` when co-hosted with the API; if the API is on another host or has a public DNS name, set `Api__BaseUrl` in the console and `Storage__PublicBaseUrl` in the API to that reachable API URL. Allow inbound TCP `5081` in the host firewall or reverse proxy.
 
 ### Switching between Simulation and OneKhusa
 
 Set the OneKhusa values below to enable it in the console. Missing required values are listed on the Payment provider page. Finance and ops admins can switch the API between Simulation and OneKhusa there; `Payments:Provider` remains the startup default, and a runtime selection resets when the API restarts. The OneKhusa environment (`Sandbox` or `Live`) stays configuration-driven.
+
+For a pending Mock payment, the buyer's tracking page shows a **Test this payment** link to `/simulate-payment/{tracking-token}`; a tester can simulate success or failure through the mock webhook flow. For a pending OneKhusa-origin payment, the link is also available when OneKhusa **Sandbox** is active and `OneKhusa:SandboxConnectorId` is configured. That action displays the timed account number (TAN), calls OneKhusa's Sandbox Fake Data endpoint, and applies the successful payment to the order. It is never available with OneKhusa Live. These test actions do not move live money.
 
 ```
 Payments__Provider=OneKhusa

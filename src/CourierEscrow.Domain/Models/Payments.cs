@@ -39,6 +39,52 @@ public sealed class PaymentIntent
     public void Polled(DateTimeOffset now) => LastPolledAt = now;
 }
 
+public enum PaymentAttemptOutcome { Started = 0, Succeeded = 1, Failed = 2 }
+
+public sealed class PaymentAttempt
+{
+    private PaymentAttempt() { Provider = ""; IdempotencyKey = ""; }
+
+    public Guid Id { get; private set; }
+    public Guid PaymentIntentId { get; private set; }
+    public string Provider { get; private set; }
+    public string IdempotencyKey { get; private set; }
+    public string? RequestFingerprint { get; private set; }
+    public DateTimeOffset StartedAt { get; private set; }
+    public DateTimeOffset? FinishedAt { get; private set; }
+    public PaymentAttemptOutcome Outcome { get; private set; }
+    public int? ProviderStatusCode { get; private set; }
+    public string? FailureMessage { get; private set; }
+    public bool? TransientFailure { get; private set; }
+
+    public static PaymentAttempt Start(Guid paymentIntentId, string provider, string idempotencyKey, DateTimeOffset now) =>
+        new()
+        {
+            Id = Guid.NewGuid(), PaymentIntentId = paymentIntentId, Provider = provider,
+            IdempotencyKey = idempotencyKey, StartedAt = now, Outcome = PaymentAttemptOutcome.Started
+        };
+
+    public void Succeed(string? requestFingerprint, int? providerStatusCode, DateTimeOffset now)
+    {
+        if (Outcome != PaymentAttemptOutcome.Started) return;
+        RequestFingerprint = requestFingerprint;
+        ProviderStatusCode = providerStatusCode;
+        FinishedAt = now;
+        Outcome = PaymentAttemptOutcome.Succeeded;
+    }
+
+    public void Fail(string? requestFingerprint, int? providerStatusCode, string message, bool transient, DateTimeOffset now)
+    {
+        if (Outcome != PaymentAttemptOutcome.Started) return;
+        RequestFingerprint = requestFingerprint;
+        ProviderStatusCode = providerStatusCode;
+        FailureMessage = message.Length <= 1000 ? message : message[..1000];
+        TransientFailure = transient;
+        FinishedAt = now;
+        Outcome = PaymentAttemptOutcome.Failed;
+    }
+}
+
 public enum PayoutKind { Seller = 0, Courier = 1, BuyerRefund = 2 }
 public enum PayoutStatus { Queued = 0, Submitted = 1, Confirmed = 2, NeedsReview = 3 }
 

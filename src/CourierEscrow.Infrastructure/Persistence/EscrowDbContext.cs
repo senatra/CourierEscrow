@@ -30,6 +30,7 @@ public sealed class EscrowDbContext(DbContextOptions<EscrowDbContext> options) :
     public DbSet<CourierAccount> Couriers => Set<CourierAccount>();
     public DbSet<StaffUser> StaffUsers => Set<StaffUser>();
     public DbSet<PaymentIntent> PaymentIntents => Set<PaymentIntent>();
+    public DbSet<PaymentAttempt> PaymentAttempts => Set<PaymentAttempt>();
     public DbSet<Payout> Payouts => Set<Payout>();
     public DbSet<Otp> Otps => Set<Otp>();
     public DbSet<Proof> Proofs => Set<Proof>();
@@ -141,6 +142,20 @@ public sealed class EscrowDbContext(DbContextOptions<EscrowDbContext> options) :
             b.HasIndex(i => i.Reference).IsUnique();
             b.HasIndex(i => i.EscrowId);
             b.HasIndex(i => i.Status);
+        });
+
+        m.Entity<PaymentAttempt>(b =>
+        {
+            b.ToTable("payment_attempts");
+            b.HasKey(a => a.Id);
+            b.Property(a => a.Id).ValueGeneratedNever();
+            b.Property(a => a.Provider).HasMaxLength(40).IsRequired();
+            b.Property(a => a.IdempotencyKey).HasMaxLength(100).IsRequired();
+            b.Property(a => a.RequestFingerprint).HasMaxLength(64);
+            b.Property(a => a.Outcome).HasConversion<string>().HasMaxLength(12).IsRequired();
+            b.Property(a => a.FailureMessage).HasMaxLength(1000);
+            b.HasOne<PaymentIntent>().WithMany().HasForeignKey(a => a.PaymentIntentId).OnDelete(DeleteBehavior.Restrict);
+            b.HasIndex(a => new { a.PaymentIntentId, a.StartedAt });
         });
 
         m.Entity<Payout>(b =>

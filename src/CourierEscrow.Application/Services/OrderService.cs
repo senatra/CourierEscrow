@@ -25,7 +25,8 @@ public sealed record TrackingView(string OrderNumber, string ItemDescription, lo
     string? SealId, string? CourierName, DateTimeOffset? PickedUpAt, IReadOnlyList<TrackingStep> Steps,
     bool ProductConfirmed, bool CanConfirmProduct, bool CanDeclineProduct,
     IReadOnlyList<TrackingPhoto> Photos, string? PayToAccount, DateTimeOffset? PaymentExpiresAt,
-    string TrackingToken, long ItemAmount, long DeliveryFee, string? SellerName, bool ProductDeclined);
+    string TrackingToken, long ItemAmount, long DeliveryFee, string? SellerName, bool ProductDeclined,
+    bool CanSimulatePayment = false, string? SimulationUnavailableReason = null, string? SimulatorProvider = null);
 
 public sealed record ProductConfirmResult(Escrow Escrow, bool AlreadyConfirmed);
 
