@@ -1,0 +1,257 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Hand-over simulator (development)</title>
+<style>
+    :root {
+        --bg: #f2f4f3; --card: #fff; --ink: #15211b; --muted: #5b6b63; --line: #d7ddd9; --green: #0f6b46; --green-soft: #d9efe2;
+        --amber: #a86a00; --amber-soft: #fff0d6; --bad: #8c1d18; --bad-soft: #fadbd8; --blue: #1d4780; --blue-soft: #dce9fb;
+        --field: #fff; --field-line: #aab4ae;
+    }
+    @media (prefers-color-scheme: dark) {
+        :root:not([data-theme="light"]) {
+            --bg: #101613; --card: #18211c; --ink: #e8efea; --muted: #9db0a5; --line: #2b3a32; --green: #3fbf84; --green-soft: #17342a;
+            --amber: #f0b44c; --amber-soft: #3a2c10; --bad: #ff8a80; --bad-soft: #3d1a17; --blue: #8db8f5; --blue-soft: #172a45;
+            --field: #101613; --field-line: #46594d;
+        }
+    }
+    * { box-sizing: border-box; }
+    body { margin: 0; font: 16px/1.45 system-ui, -apple-system, "Segoe UI", sans-serif; background: var(--bg); color: var(--ink);
+           padding: env(safe-area-inset-top, 0px) 0 env(safe-area-inset-bottom, 0px); }
+    main { max-width: 560px; margin: 0 auto; padding: 1rem; }
+    h1 { font-size: 1.5rem; margin: .2rem 0 .2rem; }
+    h2 { font-size: .8rem; letter-spacing: .08em; text-transform: uppercase; color: var(--muted); margin: 0 0 .6rem; }
+    .lead { color: var(--muted); margin: 0 0 1rem; }
+    .card { background: var(--card); border: 1px solid var(--line); border-radius: 16px; padding: 1rem; margin-bottom: .9rem; }
+    .dev-flag { display: inline-block; font-size: .72rem; font-weight: 700; letter-spacing: .08em; text-transform: uppercase;
+                padding: .15rem .55rem; border-radius: 999px; background: var(--amber-soft); color: var(--amber); border: 1px solid var(--amber); }
+    label { display: block; font-weight: 600; margin: .2rem 0 .35rem; }
+    input[type=text] { width: 100%; font-size: 1.05rem; padding: .7rem .8rem; border: 1px solid var(--field-line); border-radius: 12px; background: var(--field); color: var(--ink); }
+    input.otp { font-size: 2rem; letter-spacing: .35em; text-align: center; font-weight: 700; font-variant-numeric: tabular-nums; }
+    .btn { width: 100%; font: inherit; font-size: 1.05rem; font-weight: 700; padding: .85rem; border-radius: 14px; border: 2px solid var(--green);
+           background: var(--green); color: #fff; margin-top: .6rem; cursor: pointer; }
+    @media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) .btn:not(.ghost) { color: #07150e; } }
+    .btn.ghost { background: transparent; color: var(--green); }
+    .btn:disabled { opacity: .5; cursor: not-allowed; }
+    .row { display: flex; justify-content: space-between; align-items: center; gap: .6rem; }
+    .pill { font-size: .8rem; font-weight: 700; padding: .25rem .7rem; border-radius: 999px; background: var(--green-soft); color: var(--green); white-space: nowrap; }
+    .pill.amber { background: var(--amber-soft); color: var(--amber); } .pill.bad { background: var(--bad-soft); color: var(--bad); } .pill.blue { background: var(--blue-soft); color: var(--blue); }
+    .muted { color: var(--muted); } .small { font-size: .88rem; }
+    .seg { display: grid; grid-template-columns: 1fr 1fr; gap: .5rem; margin-bottom: .8rem; }
+    .seg button { font: inherit; font-weight: 700; padding: .75rem .5rem; border-radius: 12px; border: 2px solid var(--line); background: transparent; color: var(--ink); cursor: pointer; }
+    .seg button[aria-pressed="true"] { border-color: var(--green); background: var(--green-soft); color: var(--green); }
+    .seg small { display: block; font-weight: 400; color: var(--muted); }
+    .msg { padding: .7rem 1rem; border-radius: 12px; margin: .7rem 0 0; }
+    .msg.ok { background: var(--green-soft); color: var(--green); } .msg.err { background: var(--bad-soft); color: var(--bad); } .msg.warn { background: var(--amber-soft); color: var(--amber); }
+    .steps { display: flex; flex-wrap: wrap; gap: .35rem; margin: .7rem 0 0; padding: 0; list-style: none; }
+    .steps li { font-size: .78rem; font-weight: 600; padding: .2rem .6rem; border-radius: 999px; border: 1px solid var(--line); color: var(--muted); }
+    .steps li.done { background: var(--green-soft); color: var(--green); border-color: transparent; }
+    .steps li.now { border-color: var(--green); color: var(--green); }
+    table { width: 100%; border-collapse: collapse; margin-top: .3rem; }
+    td, th { text-align: left; padding: .5rem .3rem; border-bottom: 1px solid var(--line); font-size: .95rem; }
+    th { font-size: .75rem; letter-spacing: .06em; text-transform: uppercase; color: var(--muted); }
+    td.amt { text-align: right; font-variant-numeric: tabular-nums; white-space: nowrap; }
+    .hint { margin-top: .6rem; padding: .6rem .8rem; border-radius: 12px; background: var(--blue-soft); color: var(--blue); font-size: .92rem; }
+    .hint button { font: inherit; font-weight: 700; background: none; border: 0; color: inherit; text-decoration: underline; cursor: pointer; padding: 0; }
+    [hidden] { display: none !important; }
+</style>
+</head>
+<body>
+<main>
+    <div class="row"><h1>Hand-over simulator</h1><span class="dev-flag">Development only</span></div>
+    <p class="lead">The courier types the 6-digit code the buyer gives at the door. It is checked for real: a right code releases the money, a wrong one is counted, and five wrong tries lock the order.</p>
+
+    <section class="card" id="find">
+        <h2>1. Which order?</h2>
+        <label for="tok">Buyer tracking link or token</label>
+        <input type="text" id="tok" placeholder="Paste the buyer link, e.g. http://localhost:5080/t/abc…" autocomplete="off" spellcheck="false">
+        <button class="btn ghost" id="load">Load order</button>
+        <div id="findMsg"></div>
+        <div id="linkBox" hidden style="margin-top:.8rem">
+            <label for="courierLink">Courier link (send this to the courier)</label>
+            <input type="text" id="courierLink" readonly>
+            <button class="btn ghost" id="copyLink">Copy courier link</button>
+        </div>
+    </section>
+
+    <section class="card" id="status" hidden>
+        <div class="row"><h2 style="margin:0">Order</h2><span class="pill" id="state"></span></div>
+        <ul class="steps" id="steps"></ul>
+        <p class="small muted" id="total" style="margin:.7rem 0 0"></p>
+        <div id="advance" hidden>
+            <p class="small muted" style="margin:.8rem 0 0" id="advanceText"></p>
+            <button class="btn ghost" id="advanceBtn"></button>
+        </div>
+    </section>
+
+    <section class="card" id="entry" hidden>
+        <h2>2. Courier: enter the buyer’s code</h2>
+        <label for="code">Code from the buyer</label>
+        <input class="otp" type="text" id="code" inputmode="numeric" pattern="[0-9]*" maxlength="6" autocomplete="one-time-code" placeholder="000000">
+        <button class="btn" id="submit" disabled>Submit code</button>
+        <p class="small muted" id="attempts" style="margin:.6rem 0 0"></p>
+        <div id="entryMsg"></div>
+        <div class="hint" id="smsHint" hidden>
+            <span id="smsText"></span> <button type="button" id="fill">Fill it in</button>
+        </div>
+        <button class="btn ghost" id="peek" style="margin-top:.8rem">Look in the test SMS inbox for the code</button>
+    </section>
+
+    <section class="card" id="money" hidden>
+        <h2>3. Seller and courier payouts</h2>
+        <table>
+            <thead><tr><th>Payee</th><th>Status</th><th style="text-align:right">Amount</th></tr></thead>
+            <tbody id="payRows"></tbody>
+        </table>
+        <p class="small muted" id="payNote" style="margin:.7rem 0 0"></p>
+        <button class="btn" id="pay">Send payouts and mark them paid</button>
+        <div id="payMsg"></div>
+    </section>
+</main>
+
+<script>
+(() => {
+    const $ = id => document.getElementById(id);
+    const STEPS = [['Created', 'Created'], ['PaymentPending', 'Awaiting payment'], ['Funded', 'Paid'], ['PickedUp', 'Picked up'],
+                   ['Delivered', 'At the door'], ['Released', 'Code accepted'], ['Settled', 'Paid out']];
+    // Dev actions that bring an order to the door; the code entry itself is done by hand on this page.
+    const ADVANCE = {
+        PaymentPending: ['/dev/pay-by-token/', 'Simulate the buyer’s payment', 'The buyer has to pay first.'],
+        Funded: ['/dev/pickup/', 'Simulate courier pickup (sends the buyer’s code)', 'The courier has to collect the item. That is when the code is issued and texted.'],
+        PickedUp: ['/dev/deliver/', 'Simulate courier arrival', 'The courier has to arrive before a code can be accepted.']
+    };
+    let token = '', st = null, busy = false, lastCode = null;
+
+    const money = (n, c) => (c || 'MWK') + ' ' + (n / 100).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+    const say = (el, kind, text) => { el.innerHTML = ''; if (!text) return; const d = document.createElement('div'); d.className = 'msg ' + kind; d.textContent = text; el.appendChild(d); };
+    const tokenFrom = v => { v = (v || '').trim(); const m = v.match(/\/t\/([^/?#\s]+)/) || v.match(/\/track\/([^/?#\s]+)/); return m ? decodeURIComponent(m[1]) : v; };
+
+    async function api(path, opts) {
+        const res = await fetch(path, opts);
+        const text = await res.text();
+        let data = null; try { data = text ? JSON.parse(text) : null; } catch { /* not JSON */ }
+        if (!res.ok) throw new Error((data && (data.detail || data.title || data.message)) || 'Something went wrong (' + res.status + ').');
+        return data;
+    }
+    const post = (path, body) => api(path, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: body ? JSON.stringify(body) : undefined });
+
+    function render() {
+        if (!st) return;
+        $('status').hidden = false;
+        $('state').textContent = st.state;
+        $('state').className = 'pill' + (st.state === 'Settled' ? '' : st.state === 'Disputed' ? ' bad' : ' blue');
+        $('total').textContent = 'Order total ' + money(st.total, st.currency);
+
+        const idx = STEPS.findIndex(s => s[0] === st.state);
+        $('steps').innerHTML = '';
+        STEPS.forEach((s, i) => { const li = document.createElement('li'); li.textContent = s[1]; li.className = i < idx ? 'done' : i === idx ? 'now' : ''; $('steps').appendChild(li); });
+
+        const adv = ADVANCE[st.state];
+        $('advance').hidden = !adv;
+        if (adv) { $('advanceText').textContent = adv[2]; $('advanceBtn').textContent = adv[1]; }
+
+        const canEnter = st.state === 'Delivered' && st.codeIssued && !st.codeUsed && !st.codeLocked;
+        $('entry').hidden = !['PickedUp', 'Delivered', 'Released', 'Settled'].includes(st.state);
+        $('submit').disabled = busy || !canEnter || $('code').value.length !== 6;
+        $('code').disabled = !canEnter;
+        $('attempts').textContent = st.codeLocked ? 'The code is locked. Ops must reissue it from the console.'
+            : st.codeUsed ? 'The code was accepted.'
+            : st.state === 'Delivered' ? st.attemptsLeft + ' of 5 tries left.' : 'The code opens once the courier has arrived.';
+
+        const paid = ['Released', 'Settled'].includes(st.state);
+        $('money').hidden = !paid;
+        if (paid) {
+            $('payRows').innerHTML = '';
+            st.payouts.forEach(p => {
+                const tr = document.createElement('tr');
+                const label = p.kind === 'Seller' ? 'Seller' : p.kind === 'Courier' ? 'Courier' : 'Buyer refund';
+                [[label + ' · ' + p.payee, ''], [p.status === 'NeedsReview' ? 'Needs review' : p.status, ''], [money(p.amount, p.currency), 'amt']].forEach(([t, c]) => {
+                    const td = document.createElement('td'); td.textContent = t; if (c) td.className = c; tr.appendChild(td); });
+                $('payRows').appendChild(tr);
+            });
+            const open = st.payouts.some(p => p.status !== 'Confirmed');
+            $('pay').hidden = !open;
+            $('payNote').textContent = open
+                ? 'In production the mobile-money provider pays these out and tells us by webhook. Here you play the provider.'
+                : 'Every payout is confirmed, so the order is settled.';
+        }
+    }
+
+    async function refresh() { st = await api('/dev/handover/' + encodeURIComponent(token)); render(); }
+
+    async function load() {
+        token = tokenFrom($('tok').value);
+        if (!token) { say($('findMsg'), 'err', 'Paste the buyer’s link or token first.'); return; }
+        try {
+            await refresh();
+            say($('findMsg'), 'ok', 'Order loaded.');
+            $('courierLink').value = location.origin + '/dev/handover?t=' + encodeURIComponent(token);
+            $('linkBox').hidden = false;
+            history.replaceState(null, '', '?t=' + encodeURIComponent(token));
+        } catch (e) { st = null; ['status', 'entry', 'money'].forEach(i => $('' + i).hidden = true); say($('findMsg'), 'err', e.message); }
+    }
+
+    async function submit() {
+        if (busy) return; busy = true; render();
+        try {
+            const r = await post('/dev/handover/' + encodeURIComponent(token) + '/code', { code: $('code').value, clientEventId: 'dev-code-' + crypto.randomUUID() });
+                        const el = $('entryMsg');
+            switch (r.result) {
+                case 'Accepted': say(el, 'ok', 'Code accepted. The money is released: seller and courier payouts are queued.'); $('code').value = ''; break;
+                case 'Wrong': say(el, 'err', 'That code is not right. ' + r.attemptsLeft + ' ' + (r.attemptsLeft === 1 ? 'try' : 'tries') + ' left.'); $('code').select(); break;
+                case 'Locked': say(el, 'err', 'Too many wrong tries. The order is flagged for ops and the code no longer works.'); break;
+                case 'Expired': say(el, 'warn', 'The code has expired. Ops must reissue it.'); break;
+                default: say(el, 'warn', 'The code is not active (' + r.result + ').');
+            }
+        } catch (e) { say($('entryMsg'), 'err', e.message); }
+        busy = false;
+        try { await refresh(); } catch { /* keep the last view */ }
+    }
+
+    async function peek() {
+        try {
+            const sms = await api('/dev/sms?escrowId=' + encodeURIComponent(st.escrowId));
+            const mine = sms.filter(m => m.template === 'picked_up_buyer' || m.template === 'otp_reissued')
+                            .sort((a, b) => new Date(b.at) - new Date(a.at))[0];
+            const m = mine && mine.body.match(/\b(\d{3}) (\d{3})\b/);   // the SMS shows it as 123 456
+            if (!m) { $('smsHint').hidden = false; $('smsText').textContent = 'No code in the test inbox yet. It is texted when the courier picks up.'; $('fill').hidden = true; lastCode = null; return; }
+            lastCode = m[1] + m[2]; $('smsHint').hidden = false; $('fill').hidden = false;
+            $('smsText').textContent = 'The buyer’s test SMS says the code is ' + lastCode + '.';
+        } catch (e) { say($('entryMsg'), 'err', e.message); }
+    }
+
+    $('load').onclick = load;
+    $('tok').addEventListener('keydown', e => { if (e.key === 'Enter') load(); });
+    $('code').addEventListener('input', e => { e.target.value = e.target.value.replace(/\D/g, '').slice(0, 6); render(); });
+    $('code').addEventListener('keydown', e => { if (e.key === 'Enter' && !$('submit').disabled) submit(); });
+    $('submit').onclick = submit;
+    $('copyLink').onclick = async () => {
+        try { await navigator.clipboard.writeText($('courierLink').value); } catch { $('courierLink').select(); document.execCommand('copy'); }
+        $('copyLink').textContent = 'Copied';
+        setTimeout(() => { $('copyLink').textContent = 'Copy courier link'; }, 1500);
+    };
+    $('peek').onclick = peek;
+    $('fill').onclick = () => { if (lastCode) { $('code').value = lastCode; render(); $('code').focus(); } };
+    $('advanceBtn').onclick = async () => {
+        const a = ADVANCE[st.state]; if (!a) return;
+        try { await post(a[0] + encodeURIComponent(token)); await refresh(); say($('findMsg'), 'ok', 'Done.'); } catch (e) { say($('findMsg'), 'err', e.message); }
+    };
+    $('pay').onclick = async () => {
+        $('pay').disabled = true;
+        try { st = await post('/dev/handover/' + encodeURIComponent(token) + '/payouts'); render(); say($('payMsg'), 'ok', st.state === 'Settled' ? 'All payouts confirmed. The order is settled.' : 'Payouts sent.'); }
+        catch (e) { say($('payMsg'), 'err', e.message); }
+        $('pay').disabled = false;
+    };
+
+    // Only meaningful where the dev endpoints exist.
+    fetch('/dev/ping').then(r => { if (!r.ok) throw 0; }).catch(() => {
+        document.querySelector('main').innerHTML = '<h1>Not available</h1><p class="lead">This screen only works while the API runs in Development.</p>';
+    });
+    const t = new URLSearchParams(location.search).get('t');
+    if (t) { $('tok').value = t; load(); }
+})();
+</script>
+</body>
+</html>

@@ -1,0 +1,98 @@
+@page "/reconciliation"
+@inject EscrowApiClient Api
+
+<PageTitle>Reconciliation · Nexa Escrow</PageTitle>
+<div class="page-head">
+    <h1>Reconciliation</h1>
+    <div class="head-actions">
+        <label class="reconciliation-date">Report date <InputDate @bind-Value="selectedDate" class="input" /></label>
+        <button class="btn primary" disabled="@busy" @onclick="RunNow">@(busy ? "Running…" : "Run reconciliation")</button>
+    </div>
+</div>
+<p class="lede muted">Compares provider payout transactions with our records, checks ledger and escrow balances, and flags exceptions. Confirmed payouts update the ledger; failures and reversals are sent for review. It also runs by itself after 02:00 UTC.</p>
+
+<Notice Message="@error" Kind="error" />
+<Notice Message="@info" Kind="info" />
+
+@if (runs is not null)
+{
+        @if (runs.Count == 0)
+        {
+            <EmptyState Title="No runs yet" Body="Run yesterday's comparison, or wait for the 02:00 UTC job." />
+        }
+        else
+        {
+        <div class="table-wrap">
+        <table class="table">
+            <thead><tr><th>Day</th><th>Ran</th><th class="num">Provider rows</th><th class="num">Matched</th><th class="num">Exceptions</th><th></th></tr></thead>
+            <tbody>
+            @foreach (var r in runs)
+            {
+                <tr>
+                    <td>@r.ForDate</td><td class="muted small">@Fmt.When(r.RanAt)</td><td class="num">@r.ProviderCount</td><td class="num">@r.MatchedCount</td>
+                    <td class="num @(r.ExceptionCount > 0 ? "bad" : "")">@r.ExceptionCount</td>
+                    <td><button class="btn small" @onclick="() => Show(r)">Details</button></td>
+                </tr>
+            }
+            </tbody>
+        </table>
+        </div>
+    }
+}
+
+@if (items is not null)
+{
+    <h2>Run for @selected</h2>
+    @if (items.Count == 0) { <div class="notice success">No exceptions. Everything matches.</div> }
+    else
+    {
+        <div class="table-wrap">
+        <table class="table compact">
+            <thead><tr><th>Kind</th><th>Reference</th><th>What is wrong</th></tr></thead>
+            <tbody>@foreach (var i in items) { <tr><td>@i.Kind</td><td class="mono small">@i.Reference</td><td>@i.Detail</td></tr> }</tbody>
+        </table>
+        </div>
+    }
+}
+
+@code {
+    private List<ReconRun>? runs;
+    private List<ReconItem>? items;
+    private string? selected, error, info;
+    private bool busy;
+    private DateTime selectedDate = DateTime.UtcNow.Date.AddDays(-1);
+
+    protected override Task OnInitializedAsync() => Load();
+
+    private async Task Load()
+    {
+        try { error = null; runs = await Api.GetReconRuns(); }
+        catch (Exception ex) { error = ex.Message; }
+    }
+
+    private async Task Show(ReconRun r)
+    {
+        try
+        {
+            selected = r.ForDate;
+            selectedDate = DateTime.Parse(r.ForDate, System.Globalization.CultureInfo.InvariantCulture).Date;
+            items = await Api.GetReconItems(r.Id);
+        }
+        catch (Exception ex) { error = ex.Message; }
+    }
+
+    private async Task RunNow()
+    {
+        busy = true; error = null;
+        try
+        {
+            var date = DateOnly.FromDateTime(selectedDate);
+            await Api.RunReconciliation(date);
+            info = $"Reconciliation finished for {date:yyyy-MM-dd}.";
+            await Load();
+            if (runs is { Count: > 0 }) await Show(runs[0]);
+        }
+        catch (Exception ex) { error = ex.Message; }
+        finally { busy = false; }
+    }
+}

@@ -1,0 +1,30 @@
+@if (Transactions.Count == 0)
+{
+    <p class="muted">No ledger entries yet. Money has not moved.</p>
+}
+else
+{
+    foreach (var tx in Transactions)
+    {
+        <div class="card ledger-tx">
+            <div class="tx-head"><strong class="tx-kind">@tx.Kind.Replace('_', ' ')</strong><span class="muted small">@Fmt.When(tx.At)</span></div>
+            <table class="table compact">
+                <thead><tr><th>Account</th><th class="num">Debit</th><th class="num">Credit</th></tr></thead>
+                <tbody>
+                @foreach (var e in tx.Entries)
+                {
+                    <tr>
+                        <td class="mono">@Fmt.Account(e.Account)</td>
+                        <td class="num">@(e.Direction == "Debit" ? Fmt.Money(e.Amount) : "")</td>
+                        <td class="num">@(e.Direction == "Credit" ? Fmt.Money(e.Amount) : "")</td>
+                    </tr>
+                }
+                </tbody>
+            </table>
+        </div>
+    }
+}
+
+@code {
+    [Parameter, EditorRequired] public List<LedgerTx> Transactions { get; set; } = [];
+}

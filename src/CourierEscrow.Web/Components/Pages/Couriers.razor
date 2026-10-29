@@ -1,0 +1,147 @@
+@page "/couriers"
+@inject EscrowApiClient Api
+
+<PageTitle>Couriers · Nexa Escrow</PageTitle>
+<div class="page-head">
+    <h1>Couriers</h1>
+    <div class="head-actions">
+        <button class="btn" @onclick="Load">Refresh</button>
+        @if (!adding)
+        {
+            <button class="btn primary" @onclick="StartAdd">Add courier</button>
+        }
+    </div>
+</div>
+
+<Notice Message="@error" Kind="error" />
+<Notice Message="@info" Kind="info" />
+
+@if (adding)
+{
+    <div class="wizard" style="margin-bottom:1.5rem">
+        <Stepper Labels="@AddSteps" Current="@addStep" OnSelect="GoAdd" AriaLabel="Add courier steps" />
+        @if (addStep == 0)
+        {
+            <div class="wizard-pane">
+                <h3>Who they are</h3>
+                <p class="wizard-hint">This name and phone are what the courier uses to sign in.</p>
+                <div class="two-col">
+                    <label>Name <input class="input" @bind="name" /></label>
+                    <label>Phone <input class="input" inputmode="tel" @bind="phone" placeholder="0999 123 456" /></label>
+                </div>
+            </div>
+        }
+        else if (addStep == 1)
+        {
+            <div class="wizard-pane">
+                <h3>Wallet and PIN</h3>
+                <p class="wizard-hint">Delivery fees pay out to this wallet. The PIN is only for the courier app.</p>
+                <div class="two-col">
+                    <label>Wallet network <select class="input" @bind="network"><option>Airtel</option><option>Tnm</option></select></label>
+                    <label>PIN (4 to 8 digits) <input class="input" type="password" inputmode="numeric" @bind="pin" autocomplete="off" /></label>
+                </div>
+            </div>
+        }
+        else
+        {
+            <div class="wizard-pane">
+                <h3>Confirm</h3>
+                <dl class="kv review">
+                    <dt>Name</dt><dd>@name</dd>
+                    <dt>Phone</dt><dd class="mono">@phone</dd>
+                    <dt>Network</dt><dd>@network</dd>
+                    <dt>PIN</dt><dd>@(pin.Length) digits</dd>
+                </dl>
+            </div>
+        }
+        <div class="form-actions">
+            @if (addStep > 0) { <button type="button" class="btn" @onclick="() => addStep--">Back</button> }
+            @if (addStep < 2) { <button type="button" class="btn primary" @onclick="NextAdd">Continue</button> }
+            else { <button type="button" class="btn primary" disabled="@busy" @onclick="Add">@(busy ? "Adding…" : "Add courier")</button> }
+            <button type="button" class="btn ghost" @onclick="CancelAdd">Cancel</button>
+        </div>
+    </div>
+}
+
+@if (rows is null && error is null) { <p class="muted">Loading…</p> }
+else if (rows is not null)
+{
+    @if (rows.Count == 0)
+    {
+        <EmptyState Title="No couriers" Body="Add someone before you can assign a delivery.">
+            @if (!adding) { <button class="btn primary" @onclick="StartAdd">Add courier</button> }
+        </EmptyState>
+    }
+    else
+    {
+        <div class="table-wrap">
+            <table class="table">
+                <thead><tr><th>Name</th><th>Phone</th><th>Wallet</th><th>Status</th><th>Phone bound</th><th></th></tr></thead>
+                <tbody>
+                @foreach (var c in rows)
+                {
+                    <tr>
+                        <td>@c.Name</td><td class="mono small">@c.Phone</td><td>@c.Network</td><td><StateBadge State="@c.Status" /></td><td>@(c.DeviceBound ? "yes" : "not yet")</td>
+                        <td>
+                            @if (c.DeviceBound) { <button class="btn small" disabled="@busy" @onclick="() => Reset(c)" title="Lets the courier sign in from a new phone">Approve new phone</button> }
+                            <button class="btn small" disabled="@busy" @onclick="() => Toggle(c)">@(c.Status == "Active" ? "Suspend" : "Reactivate")</button>
+                        </td>
+                    </tr>
+                }
+                </tbody>
+            </table>
+        </div>
+    }
+}
+
+@code {
+    private static readonly string[] AddSteps = ["Identity", "Payout", "Confirm"];
+    private List<CourierRow>? rows;
+    private string name = "", phone = "", network = "Airtel", pin = "";
+    private string? error, info;
+    private bool busy, adding;
+    private int addStep;
+
+    protected override Task OnInitializedAsync() => Load();
+
+    private async Task Load()
+    {
+        try { error = null; rows = await Api.GetCouriers(); }
+        catch (Exception ex) { error = ex.Message; }
+    }
+
+    private void StartAdd() { adding = true; addStep = 0; error = info = null; }
+    private void CancelAdd() { adding = false; addStep = 0; name = phone = pin = ""; error = null; }
+    private void GoAdd(int to) { if (to < addStep) addStep = to; }
+
+    private void NextAdd()
+    {
+        error = addStep == 0
+            ? (string.IsNullOrWhiteSpace(name) || string.IsNullOrWhiteSpace(phone) ? "Enter a name and phone." : null)
+            : PinError();
+        if (error is null) addStep++;
+    }
+
+    private string? PinError() => pin.Length is < 4 or > 8 || pin.Any(c => c is < '0' or > '9') ? "PIN must be 4 to 8 digits." : null;
+
+    private async Task Add()
+    {
+        error = PinError();
+        if (error is not null) { addStep = 1; return; }
+        busy = true; error = null; info = null;
+        try { await Api.CreateCourier(name, phone, network, pin); info = $"{name} was added."; CancelAdd(); await Load(); }
+        catch (Exception ex) { error = ex.Message; }
+        finally { busy = false; }
+    }
+
+    private async Task Reset(CourierRow c) => await Do(() => Api.ResetDevice(c.Id), $"{c.Name} can now sign in from a new phone.");
+    private async Task Toggle(CourierRow c) => await Do(() => Api.SetCourierActive(c.Id, c.Status != "Active"), "Updated.");
+
+    private async Task Do(Func<Task> action, string done)
+    {
+        busy = true; error = null;
+        try { await action(); info = done; await Load(); }
+        catch (Exception ex) { error = ex.Message; }
+        finally { busy = false; }
+    }
+}

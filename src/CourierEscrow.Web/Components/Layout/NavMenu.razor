@@ -1,0 +1,38 @@
+<aside class="sidebar @(Open ? "open" : null)" id="primary-navigation" aria-label="Primary navigation">
+    <a class="brand" href="/" @onclick="Navigate">
+        <span class="logo" aria-hidden="true">◈</span>
+        <div>
+            <strong>Nexa Escrow</strong>
+            <small>Ops console</small>
+        </div>
+    </a>
+
+    <nav>
+        <p class="nav-label">Work</p>
+        <NavLink href="/" Match="NavLinkMatch.All" @onclick="Navigate"><span class="nav-icon" aria-hidden="true">⌂</span>Dashboard</NavLink>
+        <NavLink href="/orders" Match="NavLinkMatch.Prefix" @onclick="Navigate"><span class="nav-icon" aria-hidden="true">▤</span>Orders</NavLink>
+
+        <p class="nav-label">Money</p>
+        <NavLink href="/payouts" @onclick="Navigate"><span class="nav-icon" aria-hidden="true">↗</span>Payouts</NavLink>
+        <NavLink href="/disputes" @onclick="Navigate"><span class="nav-icon" aria-hidden="true">◇</span>Disputes</NavLink>
+        <NavLink href="/reconciliation" @onclick="Navigate"><span class="nav-icon" aria-hidden="true">≋</span>Reconciliation</NavLink>
+        <AuthorizeView Roles="ops_admin,finance">
+            <NavLink href="/payment-provider" @onclick="Navigate"><span class="nav-icon" aria-hidden="true">◉</span>Payment provider</NavLink>
+        </AuthorizeView>
+
+        <p class="nav-label">People</p>
+        <NavLink href="/couriers" @onclick="Navigate"><span class="nav-icon" aria-hidden="true">♧</span>Couriers</NavLink>
+        <AuthorizeView Roles="ops_admin">
+            <NavLink href="/users" @onclick="Navigate"><span class="nav-icon" aria-hidden="true">♙</span>Users</NavLink>
+        </AuthorizeView>
+    </nav>
+
+    <p class="sidebar-note">Buyer pays, money is held, the courier hands over, the buyer's code releases it. Every kwacha is a ledger entry.</p>
+</aside>
+
+@code {
+    [Parameter] public bool Open { get; set; }
+    [Parameter] public EventCallback OnNavigate { get; set; }
+
+    private Task Navigate() => OnNavigate.InvokeAsync();
+}

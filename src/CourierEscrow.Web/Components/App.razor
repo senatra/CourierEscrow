@@ -1,0 +1,33 @@
+@inject IConfiguration Config
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <base href="/" />
+    <script src="js/theme.js"></script>
+    <link rel="stylesheet" href="app.css" />
+    <HeadOutlet @rendermode="Mode" />
+</head>
+<body>
+    <Routes @rendermode="Mode" />
+    <div id="blazor-error-ui">
+        Something went wrong. <a href="" class="reload">Reload</a>
+    </div>
+    <script src="_framework/blazor.web.js"></script>
+    <script src="js/ui.js"></script>
+</body>
+</html>
+
+@code {
+    [CascadingParameter] private HttpContext HttpContext { get; set; } = default!;
+
+    // Pages that post a plain HTML form and set the session cookie must render on the server only: a cookie cannot be
+    // written from inside a live Blazor circuit. Everything else is interactive.
+    private static readonly string[] StaticPaths = ["/login", "/account/password"];
+
+    private bool IsStatic => StaticPaths.Any(p => HttpContext.Request.Path.StartsWithSegments(p));
+
+    // Client-side data loading only by default. Set Web:Prerender=true to also render the first paint on the server.
+    private IComponentRenderMode? Mode => IsStatic ? null : new InteractiveServerRenderMode(prerender: Config.GetValue("Web:Prerender", false));
+}

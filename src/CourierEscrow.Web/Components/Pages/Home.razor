@@ -1,0 +1,78 @@
+@page "/"
+@inject EscrowApiClient Api
+
+<PageTitle>Dashboard · Nexa Escrow</PageTitle>
+<div class="page-head">
+    <h1>Dashboard</h1>
+    <div class="head-actions"><button class="btn" @onclick="Load">Refresh</button></div>
+</div>
+
+<Notice Message="@error" Kind="error" />
+
+@if (summary is null && error is null) { <p class="muted">Loading…</p> }
+else if (summary is not null)
+{
+    var l = summary.Ledger; var a = summary.Alerts;
+    <h2 class="first">Needs attention</h2>
+    @if (a.AllClear)
+    {
+        <div class="notice success">All clear. Nothing is waiting for a person.</div>
+    }
+    else
+    {
+        <div class="cards">
+            <AlertStat Label="Orders flagged" Count="@a.OrdersFlagged" Href="/orders?flagged=1" />
+            <AlertStat Label="Payouts to review" Count="@a.PayoutsNeedingReview" Href="/payouts?status=NeedsReview" />
+            <AlertStat Label="Payouts stuck" Count="@a.PayoutsStuckSubmitted" Href="/payouts?status=Submitted" />
+            <AlertStat Label="Disputes overdue" Count="@a.DisputesOverdue" Href="/disputes" />
+            <AlertStat Label="Payments stuck" Count="@a.PaymentsStuck" Href="/orders?state=PaymentPending" />
+            <AlertStat Label="Callbacks not applied" Count="@a.WebhooksUnprocessed" />
+            <AlertStat Label="Reconciliation exceptions" Count="@a.LastReconciliationExceptions" Href="/reconciliation" />
+        </div>
+        @if (!a.LedgerBalanced) { <div class="notice error">The ledger does not balance. Stop and investigate.</div> }
+    }
+
+    <h2>Where the money is (@l.Currency)</h2>
+    <div class="cards">
+        <div class="stat"><span class="stat-label">Held at the provider</span><span class="stat-value">@Fmt.Money(l.ProviderBalance)</span></div>
+        <div class="stat"><span class="stat-label">In escrow (buyers' money)</span><span class="stat-value">@Fmt.Money(l.HeldInEscrow)</span></div>
+        <div class="stat"><span class="stat-label">Owed to sellers</span><span class="stat-value">@Fmt.Money(l.OwedToSellers)</span></div>
+        <div class="stat"><span class="stat-label">Owed to couriers</span><span class="stat-value">@Fmt.Money(l.OwedToCouriers)</span></div>
+        <div class="stat"><span class="stat-label">Owed to buyers (refunds)</span><span class="stat-value">@Fmt.Money(l.OwedToBuyers)</span></div>
+        <div class="stat"><span class="stat-label">Platform revenue</span><span class="stat-value">@Fmt.Money(l.PlatformRevenue)</span></div>
+        <div class="stat"><span class="stat-label">Provider fees paid</span><span class="stat-value">@Fmt.Money(l.ProviderFees)</span></div>
+    </div>
+    <p class="ledger-check @(l.IsBalanced ? "ok" : "bad")">
+        @(l.IsBalanced ? "✓ The books balance: provider balance = escrow + payables + revenue − fees." : "✗ The books do NOT balance.")
+    </p>
+
+    @if (flagged.Count > 0)
+    {
+        <h2>Flagged orders</h2>
+        <div class="table-wrap">
+        <table class="table">
+            <thead><tr><th>Order</th><th>State</th><th>Why it needs a person</th></tr></thead>
+            <tbody>
+            @foreach (var o in flagged)
+            {
+                <tr><td><a href="/orders/@o.Id">@o.OrderNumber</a></td><td><StateBadge State="@o.State" /></td><td>@o.OpsFlag</td></tr>
+            }
+            </tbody>
+        </table>
+        </div>
+    }
+}
+
+@code {
+    private Summary? summary;
+    private List<OrderSummary> flagged = [];
+    private string? error;
+
+    protected override Task OnInitializedAsync() => Load();
+
+    private async Task Load()
+    {
+        try { error = null; summary = await Api.GetSummary(); flagged = await Api.GetFlagged(); }
+        catch (Exception ex) { error = ex.Message; }
+    }
+}

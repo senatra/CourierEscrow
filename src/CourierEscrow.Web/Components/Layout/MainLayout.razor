@@ -1,0 +1,170 @@
+@inherits LayoutComponentBase
+@implements IDisposable
+@using Microsoft.JSInterop
+@inject NavigationManager Nav
+@inject IJSRuntime JS
+
+<div class="shell @(navOpen ? "nav-open" : null)">
+    <header class="topbar">
+        <button type="button" class="nav-toggle" aria-label="@(navOpen ? "Close menu" : "Open menu")" aria-expanded="@navOpen" aria-controls="primary-navigation" @onclick="ToggleNav">
+            <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 7h16M4 12h16M4 17h16" /></svg>
+        </button>
+        <div class="topbar-copy">
+            <span class="topbar-kicker">Nexa Escrow</span>
+            <strong>@Section</strong>
+        </div>
+        <div class="topbar-actions">
+            <AuthorizeView>
+                <Authorized>
+                    @{ var shown = context.User.FindFirst(ConsoleSession.DisplayNameClaim)?.Value ?? context.User.Identity?.Name ?? "Account"; }
+                    <div class="user-menu">
+                        <button type="button" class="btn ghost user-trigger" aria-haspopup="menu" aria-expanded="@menuOpen" @onclick="ToggleMenu">
+                            <span class="avatar" aria-hidden="true">@Initial(shown)</span>
+                            <span class="user-name">@shown</span>
+                            <span class="caret" aria-hidden="true">▾</span>
+                        </button>
+                        @if (menuOpen)
+                        {
+                            <div class="menu" role="menu">
+                                <div class="menu-head">
+                                    <strong>@shown</strong>
+                                    <small class="muted">@context.User.Identity?.Name · @(context.User.FindFirst(System.Security.Claims.ClaimTypes.Role)?.Value)</small>
+                                </div>
+                                <button type="button" role="menuitem" class="menu-item" @onclick="GoPassword">Change password</button>
+                                <form method="post" action="/account/logout"><button type="submit" role="menuitem" class="menu-item danger">Sign out</button></form>
+                            </div>
+                        }
+                    </div>
+                </Authorized>
+            </AuthorizeView>
+            <button class="btn theme-toggle ghost" title="Toggle theme" aria-label="Toggle theme" @onclick="ToggleTheme">@((isDark ? "☀" : "☾"))</button>
+            @if (Section != "New order")
+            {
+                <a class="btn primary" href="/orders/new">New order</a>
+            }
+        </div>
+    </header>
+    @if (menuOpen)
+    {
+        @* Outside the topbar on purpose: the topbar's blur makes fixed children size to the bar, not the screen. *@
+        <div class="menu-backdrop" @onclick="CloseMenu"></div>
+    }
+    <NavMenu Open="@navOpen" OnNavigate="CloseNav" />
+    @if (navOpen)
+    {
+        <div class="nav-backdrop" @onclick="CloseNav"></div>
+    }
+    <main class="content">
+        @Body
+    </main>
+</div>
+
+@code {
+    private bool navOpen;
+    private string Section = "Dashboard";
+    private bool isDark;
+    private bool isRefreshing;
+    private IJSObjectReference? jsModule;
+
+    [CascadingParameter] private Task<AuthenticationState>? AuthState { get; set; }
+
+    protected override async Task OnInitializedAsync()
+    {
+        Nav.LocationChanged += OnLocation;
+        Section = TitleFor(Nav.Uri);
+
+        // A temporary password has to be replaced before anything else. (The API refuses every other call until then.)
+        if (AuthState is not null && (await AuthState).User.HasClaim(ConsoleSession.PasswordChangeClaim, "true"))
+            Nav.NavigateTo("/account/password", forceLoad: true);
+    }
+
+    // A full page load: the password page is a plain server-rendered form, not part of the interactive app.
+    private bool menuOpen;
+    private void ToggleMenu() => menuOpen = !menuOpen;
+    private void CloseMenu() => menuOpen = false;
+    private static string Initial(string name) => string.IsNullOrWhiteSpace(name) ? "?" : name.Trim()[..1].ToUpperInvariant();
+
+    private void GoPassword() => Nav.NavigateTo("/account/password", forceLoad: true);
+
+    private void OnLocation(object? sender, LocationChangedEventArgs e)
+    {
+        Section = TitleFor(e.Location);
+        navOpen = false;
+        menuOpen = false;
+        InvokeAsync(StateHasChanged);
+    }
+
+    private void ToggleNav() => navOpen = !navOpen;
+    private void CloseNav() => navOpen = false;
+
+    private async Task ToggleTheme()
+    {
+        try
+        {
+            await JS.InvokeAsync<string>("themeInterop.toggleTheme");
+            isDark = await JS.InvokeAsync<bool>("themeInterop.isDark");
+            await InvokeAsync(StateHasChanged);
+        }
+        catch { }
+    }
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (firstRender)
+        {
+            try
+            {
+                var t = await JS.InvokeAsync<string>("themeInterop.getTheme");
+                if (!string.IsNullOrEmpty(t)) isDark = t == "dark";
+                else isDark = await JS.InvokeAsync<bool>("themeInterop.isDark");
+                await InvokeAsync(StateHasChanged);
+
+                // Setup keyboard shortcuts
+                await JS.InvokeVoidAsync("ui.shortcuts.register", "ctrl+/", new Func<Task>(ShowShortcuts));
+                await JS.InvokeVoidAsync("ui.shortcuts.register", "r", new Func<Task>(RefreshPage));
+            }
+            catch { }
+        }
+    }
+
+    private async Task ShowShortcuts()
+    {
+        await JS.InvokeVoidAsync("ui.toast.info", "Press R to refresh | CTL+/ for shortcuts | Use arrow keys to navigate");
+    }
+
+    private async Task RefreshPage()
+    {
+        isRefreshing = true;
+        try
+        {
+            await JS.InvokeVoidAsync("ui.loading.show", "Refreshing...");
+            Nav.NavigateTo(Nav.Uri, forceLoad: true);
+        }
+        finally
+        {
+            isRefreshing = false;
+            await JS.InvokeVoidAsync("ui.loading.hideAll");
+        }
+    }
+
+    private static string TitleFor(string uri)
+    {
+        var path = new Uri(uri).AbsolutePath.TrimEnd('/').ToLowerInvariant();
+        if (path is "" or "/") return "Dashboard";
+        if (path.StartsWith("/orders/new")) return "New order";
+        if (path.StartsWith("/orders")) return "Orders";
+        if (path.StartsWith("/payouts")) return "Payouts";
+        if (path.StartsWith("/disputes")) return "Disputes";
+        if (path.StartsWith("/couriers")) return "Couriers";
+        if (path.StartsWith("/users")) return "Users";
+        if (path.StartsWith("/reconciliation")) return "Reconciliation";
+        if (path.StartsWith("/payment-provider")) return "Payment provider";
+        return "Ops";
+    }
+
+    public void Dispose()
+    {
+        Nav.LocationChanged -= OnLocation;
+        try { JS.InvokeVoidAsync("ui.events.stopAllPolling"); } catch { }
+    }
+}

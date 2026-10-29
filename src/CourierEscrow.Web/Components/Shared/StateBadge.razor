@@ -1,0 +1,13 @@
+<span class="badge @State.ToLowerInvariant()">@Label</span>
+
+@code {
+    [Parameter, EditorRequired] public string State { get; set; } = "";
+
+    private string Label => State switch
+    {
+        "PaymentPending" => "Payment pending",
+        "PickedUp" => "Picked up",
+        "NeedsReview" => "Needs review",
+        _ => State
+    };
+}

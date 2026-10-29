@@ -1,0 +1,305 @@
+@page "/orders/{Id:guid}"
+@inject EscrowApiClient Api
+@inject IConfiguration Config
+
+<PageTitle>@(d?.Order.OrderNumber ?? "Order") · Nexa Escrow</PageTitle>
+<p class="breadcrumb"><a href="/orders">← Orders</a></p>
+
+<Notice Message="@error" Kind="error" />
+<Notice Message="@(info ?? Note)" Kind="info" />
+
+@if (d is null && error is null) { <p class="muted">Loading…</p> }
+else if (d is not null)
+{
+    var o = d.Order;
+    <div class="page-head">
+        <h1>@o.OrderNumber <StateBadge State="@o.State" /></h1>
+        <div class="head-actions"><button class="btn" @onclick="Load">Refresh</button></div>
+    </div>
+
+    <Lifecycle State="@o.State" Approved="@(o.ProductConfirmedAt is not null)" />
+
+    @if (o.OpsFlag is not null)
+    {
+        <div class="notice error" style="margin-top:1rem">
+            <strong>Needs a person:</strong> @o.OpsFlag
+            <button class="btn small" style="margin-left:.75rem" disabled="@busy" @onclick='() => Run(() => Api.ClearFlag(o.Id), "Flag cleared.")'>Mark as handled</button>
+        </div>
+    }
+
+    @if (o.State == "Created")
+    {
+        <div class="approval @(o.ProductConfirmedAt is null ? "waiting" : "done")">
+            <span class="approval-icon" aria-hidden="true">@(o.ProductConfirmedAt is null ? "⏳" : "✓")</span>
+            <div>
+                @if (o.ProductConfirmedAt is null)
+                {
+                    <strong>Waiting for the buyer to approve the item photos</strong>
+                    <p class="muted small">Payment is only requested after they tap “Yes, this is the item” on their link. Nothing is charged before that.</p>
+                }
+                else
+                {
+                    <strong>Buyer approved the photos @Fmt.When(o.ProductConfirmedAt)</strong>
+                    <p class="muted small">The payment request has not gone through yet. Use “Request payment” to send it.</p>
+                }
+            </div>
+        </div>
+    }
+
+    <h2>Actions</h2>
+    <div class="actions">
+        @if (o.State == "Created" && o.ProductConfirmedAt is not null) { <button class="btn primary" disabled="@busy" @onclick="RequestPayment">Request payment</button> }
+        @if (dev && o.State == "Created" && o.ProductConfirmedAt is null) { <button class="btn" disabled="@busy" @onclick='() => Run(() => Api.SimulateBuyerApproval(o.Id), "Simulated the buyer approving the item. Payment is now requested.")'>Simulate buyer approval <span class="tag">dev</span></button> }
+        @if (o.State == "PaymentPending") { <button class="btn" disabled="@busy" @onclick="RequestPayment">Resend payment request</button> }
+        @if (o.State is "Created" or "PaymentPending") { <button class="btn danger" disabled="@busy" @onclick='() => Ask("cancel")'>Cancel order</button> }
+        @if (o.State is "PickedUp" or "Delivered") { <button class="btn" disabled="@busy" @onclick='() => Run(() => Api.ReissueOtp(o.Id), "A new code was sent to the buyer.")'>Reissue buyer code</button> }
+        @if (o.State is "Funded" or "Returned") { <button class="btn danger" disabled="@busy" @onclick='() => Ask("refund")'>@(o.State == "Funded" ? "Refund buyer in full" : "Refund buyer (item amount)")</button> }
+        @if (o.State is "Funded" or "PickedUp" or "Delivered" or "Rejected" or "Returned") { <button class="btn" disabled="@busy" @onclick='() => Ask("dispute")'>Open dispute</button> }
+        @if (o.State == "PaymentPending" && oneKhusaSandbox)
+        {
+            <AuthorizeView Roles="ops_admin,finance">
+                <Authorized>
+                    <button class="btn" disabled="@busy" @onclick='() => Run(() => Api.SimulateOneKhusaPayment(o.Id), "Simulated the OneKhusa sandbox payment. The money is now held in escrow.")'>Simulate OneKhusa payment <span class="tag">sandbox</span></button>
+                </Authorized>
+            </AuthorizeView>
+        }
+        else if (dev && o.State == "PaymentPending") { <button class="btn" disabled="@busy" @onclick='() => Run(() => Api.SimulatePayment(o.Id), "Simulated the buyer paying. The money is now held in escrow.")'>Simulate payment <span class="tag">dev</span></button> }
+        @if (dev && o.TrackingToken is not null && o.State == "Funded") { <button class="btn" disabled="@busy" @onclick='() => Run(() => Api.SimulatePickup(o.TrackingToken), "Simulated the courier picking up the item. The buyer’s code is in the test SMS inbox below.")'>Simulate courier pickup <span class="tag">dev</span></button> }
+        @if (dev && o.TrackingToken is not null && o.State == "PickedUp") { <button class="btn" disabled="@busy" @onclick='() => Run(() => Api.SimulateArrival(o.TrackingToken), "Simulated the courier arriving at the buyer.")'>Simulate courier arrival <span class="tag">dev</span></button> }
+        @if (dev && o.TrackingToken is not null && o.State == "Delivered") { <button class="btn" disabled="@busy" @onclick='() => Run(() => Api.SimulateAccept(o.TrackingToken), "Simulated the buyer accepting and giving the code. Funds are released and payouts are queued.")'>Simulate buyer accepting <span class="tag">dev</span></button> }
+        @if (dev && o.TrackingToken is not null && o.State is "Delivered" or "Released")
+        {
+            <a class="btn" target="_blank" rel="noopener" href="@HandoverUrl(o.TrackingToken)">Open courier code screen <span class="tag">dev</span></a>
+        }
+    </div>
+
+    @if (asking is not null)
+    {
+        <div class="wizard" style="margin-bottom:1rem;max-width:none">
+            <Stepper Labels="@(new[] { "Reason", "Confirm" })" Current="@askStep" OnSelect="i => { if (i < askStep) askStep = i; }" AriaLabel="Action steps" />
+            @if (askStep == 0)
+            {
+                <div class="wizard-pane">
+                    <h3>@(asking switch { "cancel" => "Why is this order being cancelled?", "refund" => "Why is the buyer being refunded?", _ => "Describe the problem" })</h3>
+                    <p class="wizard-hint">This is kept in the audit log.</p>
+                    <label>Written reason <input class="input" @bind="reason" @bind:event="oninput" placeholder="Be specific" /></label>
+                </div>
+                <div class="form-actions">
+                    <button class="btn" @onclick="() => asking = null">Back</button>
+                    <button class="btn primary" disabled="@string.IsNullOrWhiteSpace(reason)" @onclick="() => askStep = 1">Continue</button>
+                </div>
+            }
+            else
+            {
+                <div class="wizard-pane">
+                    <h3>Confirm</h3>
+                    <p class="wizard-hint">@(asking switch { "cancel" => "The order will be cancelled.", "refund" => "A refund will be queued for the buyer.", _ => "Funds will freeze until ops decide." })</p>
+                    <dl class="kv review"><dt>Reason</dt><dd>@reason</dd></dl>
+                </div>
+                <div class="form-actions">
+                    <button class="btn" @onclick="() => askStep = 0">Back</button>
+                    <button class="btn primary" disabled="@busy" @onclick="Confirm">@(busy ? "Working…" : "Confirm")</button>
+                </div>
+            }
+        </div>
+    }
+
+    <div class="grid-2">
+        <div class="card">
+            <h3>The deal</h3>
+            <dl class="kv">
+                <dt>Item</dt><dd>@o.ItemDescription</dd>
+                <dt>Item price</dt><dd>@Fmt.Money(o.ItemAmount, o.Currency)</dd>
+                <dt>Delivery fee</dt><dd>@Fmt.Money(o.DeliveryFee, o.Currency)</dd>
+                <dt>Platform fee</dt><dd>@Fmt.Money(o.PlatformFee, o.Currency) <span class="muted small">(from the item price)</span></dd>
+                <dt>Buyer pays</dt><dd><strong>@Fmt.Money(o.Total, o.Currency)</strong></dd>
+                <dt>Held in escrow</dt><dd>@Fmt.Money(d.HeldInEscrow, o.Currency)</dd>
+                @if (o.TrackingToken is not null) { <dt>Buyer link</dt><dd><a class="mono small" target="_blank" href="@TrackLink(o.TrackingToken)">@TrackLink(o.TrackingToken)</a></dd> }
+            </dl>
+        </div>
+        <div class="card">
+            <h3>People</h3>
+            <dl class="kv">
+                <dt>Buyer</dt><dd>@o.BuyerName <span class="muted mono">@o.BuyerPhone</span></dd>
+                <dt>Seller</dt><dd>@o.SellerName <span class="muted mono">@o.SellerPhone</span></dd>
+                <dt>Courier</dt><dd>@(d.CourierName ?? "—")</dd>
+                <dt>Seal / weight</dt><dd>@(d.SealId ?? "—") @(d.WeightGrams is null ? "" : $"· {d.WeightGrams / 1000m:0.###} kg")</dd>
+                <dt>Buyer code</dt><dd>@(d.OtpStatus ?? "not issued yet") @(d.OtpStatus == "Active" ? $"· {d.OtpAttempts} wrong attempt(s)" : "")</dd>
+            </dl>
+        </div>
+    </div>
+
+    @if (dev)
+    {
+        <h2>Test SMS inbox <span class="tag">dev</span> <button class="btn small" @onclick="LoadSms">Refresh</button></h2>
+        @if (sms is null || sms.Count == 0) { <p class="muted">No SMS sent yet for this order (the dispatcher runs every few seconds).</p> }
+        else
+        {
+            <div class="table-wrap"><table class="table compact">
+                <thead><tr><th>When</th><th>To</th><th>Message</th></tr></thead>
+                <tbody>@foreach (var m in sms) { <tr><td class="muted small">@Fmt.When(m.At)</td><td class="mono small">@m.ToPhone</td><td class="small">@m.Body</td></tr> }</tbody>
+            </table></div>
+        }
+    }
+
+    <h2>Timeline <span class="muted small">(immutable)</span></h2>
+    <div class="table-wrap">
+    <table class="table compact">
+        <thead><tr><th>When</th><th>Event</th><th>Change</th><th>By</th></tr></thead>
+        <tbody>
+        @foreach (var e in d.Events)
+        {
+            <tr><td class="muted small">@Fmt.When(e.At)</td><td>@e.Type</td><td>@(e.From == e.To ? "—" : $"{e.From} → {e.To}")</td><td class="muted small">@e.Actor</td></tr>
+        }
+        </tbody>
+    </table>
+    </div>
+
+    @if (d.Proofs.Count > 0)
+    {
+        <h2>Evidence</h2>
+        <div class="table-wrap">
+        <table class="table compact">
+            <thead><tr><th>Kind</th><th>Taken</th><th>GPS</th><th>SHA-256</th><th></th></tr></thead>
+            <tbody>
+            @foreach (var p in d.Proofs)
+            {
+                <tr>
+                    <td>@p.Kind</td><td class="muted small">@Fmt.When(p.ServerTime)</td>
+                    <td class="mono small">@(p.Latitude is null ? "—" : $"{p.Latitude:0.0000}, {p.Longitude:0.0000}")</td>
+                    <td class="mono small" title="@p.Sha256">@p.Sha256[..12]…</td>
+                    <td>@if (images.TryGetValue(p.Id, out var src)) { <img src="@src" alt="@p.Kind photo" style="max-height:90px;border-radius:6px" /> } else { <button class="btn small" @onclick='() => LoadImage(p.Id)'>View</button> }</td>
+                </tr>
+            }
+            </tbody>
+        </table>
+        </div>
+    }
+
+    <h2>Payments in</h2>
+    @if (d.Payments.Count == 0) { <p class="muted">No payment requested yet.</p> }
+    else
+    {
+        <div class="table-wrap">
+        <table class="table compact">
+            <thead><tr><th>Reference</th><th>Status</th><th class="num">Amount</th><th>Expires</th></tr></thead>
+            <tbody>@foreach (var i in d.Payments) { <tr><td class="mono">@i.Reference</td><td><StateBadge State="@i.Status" /></td><td class="num">@Fmt.Money(i.Amount, o.Currency)</td><td class="muted small">@Fmt.When(i.ExpiresAt)</td></tr> }</tbody>
+        </table>
+        </div>
+    }
+
+    <h2>Payouts out</h2>
+    @if (d.Payouts.Count == 0) { <p class="muted">Nothing to pay out yet.</p> }
+    else
+    {
+        <div class="table-wrap">
+        <table class="table compact">
+            <thead><tr><th>To</th><th>Wallet</th><th class="num">Amount</th><th>Status</th><th>Detail</th></tr></thead>
+            <tbody>
+            @foreach (var p in d.Payouts)
+            {
+                <tr>
+                    <td>@p.Kind · @p.Beneficiary</td><td class="mono small">@p.Network @p.Wallet</td><td class="num">@Fmt.Money(p.Amount, p.Currency)</td>
+                    <td><StateBadge State="@p.Status" /></td>
+                    <td class="small">@(p.LastError ?? (p.Fee > 0 ? $"provider fee {Fmt.Money(p.Fee)}" : "")) @if (dev && p.Status == "Submitted") { <button class="btn small" @onclick='() => Run(() => Api.SimulatePayoutSuccess(p.Reference, p.Amount), "Simulated the payout succeeding.")'>Simulate success <span class="tag">dev</span></button> }</td>
+                </tr>
+            }
+            </tbody>
+        </table>
+        </div>
+    }
+
+    @if (d.Disputes.Count > 0)
+    {
+        <h2>Disputes</h2>
+        <div class="table-wrap">
+        <table class="table compact">
+            <thead><tr><th>Opened</th><th>Reason</th><th>Status</th><th>Decision</th></tr></thead>
+            <tbody>@foreach (var x in d.Disputes) { <tr><td class="muted small">@Fmt.When(x.OpenedAt)</td><td>@x.Reason</td><td><StateBadge State="@x.Status" /></td><td class="small">@(x.Outcome ?? "due " + Fmt.When(x.DueAt)) @x.DecisionReason</td></tr> }</tbody>
+        </table>
+        </div>
+        @if (d.Disputes.Any(x => x.Status == "Open")) { <p><a class="btn primary" href="/disputes">Decide on the disputes page</a></p> }
+    }
+
+    <h2>Ledger</h2>
+    <LedgerView Transactions="d.Ledger" />
+}
+
+@code {
+    [Parameter] public Guid Id { get; set; }
+    [SupplyParameterFromQuery(Name = "note")] public string? Note { get; set; }
+
+    private OrderView? d;
+    private string? error, info, asking, reason;
+    private int askStep;
+    private bool busy;
+    private readonly Dictionary<Guid, string> images = [];
+    private bool dev => Config.GetValue("Web:DevTools", false);
+    private PaymentProviderSelection? providerSelection;
+    private bool oneKhusaSandbox => providerSelection?.Selected.Equals("onekhusa", StringComparison.OrdinalIgnoreCase) == true
+        && providerSelection.Providers.Any(p => p.Name.Equals("onekhusa", StringComparison.OrdinalIgnoreCase)
+            && p.Environment?.Equals("Sandbox", StringComparison.OrdinalIgnoreCase) == true);
+
+    private string HandoverUrl(string trackingToken) =>
+        (Config["Api:BaseUrl"] ?? "http://localhost:5080").TrimEnd('/') + "/dev/handover?t=" + Uri.EscapeDataString(trackingToken);
+    private List<DevSmsRow>? sms;
+    private string TrackLink(string token) => (Config["Api:BaseUrl"] ?? "http://localhost:5080").TrimEnd('/') + "/t/" + token;
+
+    private async Task LoadSms()
+    {
+        try { sms = await Api.DevSms(Id); }
+        catch (Exception ex) { error = ex.Message; }
+    }
+
+    protected override Task OnInitializedAsync() => Load();
+
+    private async Task Load()
+    {
+        try
+        {
+            error = null;
+            d = await Api.GetOrder(Id);
+            if (dev)
+            {
+                sms = await Api.DevSms(Id);
+                try { providerSelection = await Api.GetPaymentProvider(); }
+                catch (ApiException ex) when (ex.Status == 403) { providerSelection = null; }
+            }
+        }
+        catch (Exception ex) { error = ex.Message; }
+    }
+
+    private async Task Run(Func<Task> action, string done)
+    {
+        busy = true; error = null; info = null;
+        try { await action(); info ??= done; await Load(); }
+        catch (Exception ex) { error = ex.Message; }
+        finally { busy = false; }
+    }
+
+    private Task RequestPayment() => Run(async () =>
+    {
+        var p = await Api.RequestPayment(Id);
+        info = p.AccountNumber is null ? "Payment request sent." : $"Payment request sent. The buyer pays account {p.AccountNumber}.";
+    }, "Payment request sent.");
+
+    private void Ask(string what) { asking = what; reason = ""; askStep = 0; }
+
+    private async Task Confirm()
+    {
+        var what = asking; var text = reason!.Trim();
+        asking = null;
+        await Run(() => what switch
+        {
+            "cancel" => Api.Cancel(Id, text),
+            "refund" => Api.Refund(Id, text),
+            _ => Api.OpenDispute(Id, text)
+        }, what switch { "cancel" => "Order cancelled.", "refund" => "Refund queued.", _ => "Dispute opened. Funds are frozen." });
+    }
+
+    private async Task LoadImage(Guid proofId)
+    {
+        try { images[proofId] = await Api.GetProofImage(Id, proofId); }
+        catch (Exception ex) { error = ex.Message; }
+    }
+}
